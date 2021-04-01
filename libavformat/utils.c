@@ -474,6 +474,41 @@ int avformat_queue_attached_pictures(AVFormatContext *s)
     return 0;
 }
 
+int ff_add_attached_pic(AVFormatContext *s, AVStream *st0, AVIOContext *pb,
+                        AVBufferRef **buf, int size)
+{
+    AVStream *st = st0;
+    AVPacket *pkt;
+    int ret;
+
+    if (!st && !(st = avformat_new_stream(s, NULL)))
+        return AVERROR(ENOMEM);
+    pkt = &st->attached_pic;
+    if (buf) {
+        av_assert1(*buf);
+        av_packet_unref(pkt);
+        pkt->buf  = *buf;
+        pkt->data = (*buf)->data;
+        pkt->size = (*buf)->size - AV_INPUT_BUFFER_PADDING_SIZE;
+        *buf = NULL;
+    } else {
+        ret = av_get_packet(pb, pkt, size);
+        if (ret < 0)
+            goto fail;
+    }
+    st->disposition         |= AV_DISPOSITION_ATTACHED_PIC;
+    st->codecpar->codec_type = AVMEDIA_TYPE_VIDEO;
+
+    pkt->stream_index = st->index;
+    pkt->flags       |= AV_PKT_FLAG_KEY;
+
+    return 0;
+fail:
+    if (!st0)
+        ff_free_stream(s, st);
+    return ret;
+}
+
 static int update_stream_avctx(AVFormatContext *s)
 {
     int i, ret;
@@ -1275,7 +1310,7 @@ static void compute_pkt_fields(AVFormatContext *s, AVStream *st,
         presentation_delayed = 1;
 
     if (pkt->pts != AV_NOPTS_VALUE && pkt->dts != AV_NOPTS_VALUE &&
-        st->pts_wrap_bits < 63 && pkt->dts > INT64_MIN + (1LL << (st->pts_wrap_bits - 1)) &&
+        st->pts_wrap_bits < 63 && pkt->dts > INT64_MIN + (1LL << st->pts_wrap_bits) &&
         pkt->dts - (1LL << (st->pts_wrap_bits - 1)) > pkt->pts) {
         if (is_relative(st->cur_dts) || pkt->dts - (1LL<<(st->pts_wrap_bits - 1)) > st->cur_dts) {
             pkt->dts -= 1LL << st->pts_wrap_bits;
