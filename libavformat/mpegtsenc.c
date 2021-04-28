@@ -1681,7 +1681,7 @@ static int mpegts_write_packet_internal(AVFormatContext *s, AVPacket *pkt)
     const int64_t max_audio_delay = av_rescale(s->max_delay, 90000, AV_TIME_BASE) / 2;
     int64_t dts = pkt->dts, pts = pkt->pts;
     int opus_samples = 0;
-    buffer_size_t side_data_size;
+    size_t side_data_size;
     uint8_t *side_data = NULL;
     int stream_id = -1;
 
@@ -1818,7 +1818,7 @@ static int mpegts_write_packet_internal(AVFormatContext *s, AVPacket *pkt)
         /* Add Opus control header */
         if ((AV_RB16(pkt->data) >> 5) != 0x3ff) {
             uint8_t *side_data;
-            buffer_size_t side_data_size;
+            size_t side_data_size;
             int i, n;
             int ctrl_header_size;
             int trim_start = 0, trim_end = 0;
@@ -2134,7 +2134,7 @@ static const AVClass mpegts_muxer_class = {
     .version    = LIBAVUTIL_VERSION_INT,
 };
 
-AVOutputFormat ff_mpegts_muxer = {
+const AVOutputFormat ff_mpegts_muxer = {
     .name           = "mpegts",
     .long_name      = NULL_IF_CONFIG_SMALL("MPEG-TS (MPEG-2 Transport Stream)"),
     .mime_type      = "video/MP2T",
