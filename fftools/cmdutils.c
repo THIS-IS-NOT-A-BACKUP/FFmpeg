@@ -41,6 +41,7 @@
 #include "libavutil/avassert.h"
 #include "libavutil/avstring.h"
 #include "libavutil/bprint.h"
+#include "libavutil/channel_layout.h"
 #include "libavutil/display.h"
 #include "libavutil/mathematics.h"
 #include "libavutil/imgutils.h"
@@ -53,6 +54,7 @@
 #include "libavutil/cpu.h"
 #include "libavutil/ffversion.h"
 #include "libavutil/version.h"
+#include "libavcodec/bsf.h"
 #include "cmdutils.h"
 #if HAVE_SYS_RESOURCE_H
 #include <sys/time.h>
