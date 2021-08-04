@@ -33,6 +33,7 @@
 #include "libavutil/avassert.h"
 #include "libavutil/avstring.h"
 #include "libavutil/channel_layout.h"
+#include "libavutil/cpu.h"
 #include "libavutil/opt.h"
 #include "libavutil/parseutils.h"
 #include "libavutil/xga_font_data.h"
@@ -1037,7 +1038,7 @@ static int config_output(AVFilterLink *outlink)
     }
 
     s->win_size = fft_size;
-    s->buf_size = FFALIGN(s->win_size << (!!s->stop), 512);
+    s->buf_size = FFALIGN(s->win_size << (!!s->stop), av_cpu_max_align());
 
     if (!s->fft) {
         s->fft = av_calloc(inlink->channels, sizeof(*s->fft));
