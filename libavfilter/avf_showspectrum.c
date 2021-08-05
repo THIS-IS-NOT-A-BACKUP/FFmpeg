@@ -49,7 +49,7 @@ enum DataMode     { D_MAGNITUDE, D_PHASE, NB_DMODES };
 enum FrequencyScale { F_LINEAR, F_LOG, NB_FSCALES };
 enum DisplayScale { LINEAR, SQRT, CBRT, LOG, FOURTHRT, FIFTHRT, NB_SCALES };
 enum ColorMode    { CHANNEL, INTENSITY, RAINBOW, MORELAND, NEBULAE, FIRE, FIERY, FRUIT, COOL, MAGMA, GREEN, VIRIDIS, PLASMA, CIVIDIS, TERRAIN, NB_CLMODES };
-enum SlideMode    { REPLACE, SCROLL, FULLFRAME, RSCROLL, NB_SLIDES };
+enum SlideMode    { REPLACE, SCROLL, FULLFRAME, RSCROLL, LREPLACE, NB_SLIDES };
 enum Orientation  { VERTICAL, HORIZONTAL, NB_ORIENTATIONS };
 
 typedef struct ShowSpectrumContext {
@@ -115,6 +115,7 @@ static const AVOption showspectrum_options[] = {
         { "scroll", "scroll from right to left", 0, AV_OPT_TYPE_CONST, {.i64=SCROLL}, 0, 0, FLAGS, "slide" },
         { "fullframe", "return full frames", 0, AV_OPT_TYPE_CONST, {.i64=FULLFRAME}, 0, 0, FLAGS, "slide" },
         { "rscroll", "scroll from left to right", 0, AV_OPT_TYPE_CONST, {.i64=RSCROLL}, 0, 0, FLAGS, "slide" },
+        { "lreplace", "replace from right to left", 0, AV_OPT_TYPE_CONST, {.i64=LREPLACE}, 0, 0, FLAGS, "slide" },
     { "mode", "set channel display mode", OFFSET(mode), AV_OPT_TYPE_INT, {.i64=COMBINED}, COMBINED, NB_MODES-1, FLAGS, "mode" },
         { "combined", "combined mode", 0, AV_OPT_TYPE_CONST, {.i64=COMBINED}, 0, 0, FLAGS, "mode" },
         { "separate", "separate mode", 0, AV_OPT_TYPE_CONST, {.i64=SEPARATE}, 0, 0, FLAGS, "mode" },
@@ -1187,11 +1188,18 @@ static int config_output(AVFilterLink *outlink)
         (s->orientation == HORIZONTAL && s->xpos >= s->h))
         s->xpos = 0;
 
+    if (s->sliding == LREPLACE) {
+        if (s->orientation == VERTICAL)
+            s->xpos = s->w - 1;
+        if (s->orientation == HORIZONTAL)
+            s->xpos = s->h - 1;
+    }
+
     s->auto_frame_rate = av_make_q(inlink->sample_rate, s->hop_size);
     if (s->orientation == VERTICAL && s->sliding == FULLFRAME)
-        s->auto_frame_rate.den *= s->w;
+        s->auto_frame_rate = av_mul_q(s->auto_frame_rate, av_make_q(1, s->w));
     if (s->orientation == HORIZONTAL && s->sliding == FULLFRAME)
-        s->auto_frame_rate.den *= s->h;
+        s->auto_frame_rate = av_mul_q(s->auto_frame_rate, av_make_q(1, s->h));
     if (!s->single_pic && strcmp(s->rate_str, "auto")) {
         int ret = av_parse_video_rate(&s->frame_rate, s->rate_str);
         if (ret < 0)
@@ -1377,11 +1385,20 @@ static int plot_spectrum_column(AVFilterLink *inlink, AVFrame *insamples)
     if (s->sliding != FULLFRAME || s->xpos == 0)
         outpicref->pts = av_rescale_q(insamples->pts, inlink->time_base, outlink->time_base);
 
-    s->xpos++;
-    if (s->orientation == VERTICAL && s->xpos >= s->w)
-        s->xpos = 0;
-    if (s->orientation == HORIZONTAL && s->xpos >= s->h)
-        s->xpos = 0;
+    if (s->sliding == LREPLACE) {
+        s->xpos--;
+        if (s->orientation == VERTICAL && s->xpos < 0)
+            s->xpos = s->w - 1;
+        if (s->orientation == HORIZONTAL && s->xpos < 0)
+            s->xpos = s->h - 1;
+    } else {
+        s->xpos++;
+        if (s->orientation == VERTICAL && s->xpos >= s->w)
+            s->xpos = 0;
+        if (s->orientation == HORIZONTAL && s->xpos >= s->h)
+            s->xpos = 0;
+    }
+
     if (!s->single_pic && (s->sliding != FULLFRAME || s->xpos == 0)) {
         if (s->old_pts < outpicref->pts) {
             AVFrame *clone;
@@ -1504,7 +1521,7 @@ static int activate(AVFilterContext *ctx)
                 memset(s->outpicref->data[2] + i * s->outpicref->linesize[2], 128, outlink->w);
             }
         }
-        s->outpicref->pts += s->consumed;
+        s->outpicref->pts += av_rescale_q(s->consumed, inlink->time_base, outlink->time_base);
         pts = s->outpicref->pts;
         ret = ff_filter_frame(outlink, s->outpicref);
         s->outpicref = NULL;

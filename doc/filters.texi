@@ -13020,6 +13020,12 @@ Display video frame rate or sample rate in case of audio used by filter link.
 
 @item eof
 Display link output status.
+
+@item sample_count_in
+Display number of samples taken from filter.
+
+@item sample_count_out
+Display number of samples given out from filter.
 @end table
 
 @item rate, r
@@ -26749,6 +26755,8 @@ the samples scroll from right to left
 frames are only produced when the samples reach the right
 @item rscroll
 the samples scroll from left to right
+@item lreplace
+the samples start again on the right when they reach the left
 @end table
 
 Default value is @code{replace}.
