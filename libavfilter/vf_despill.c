@@ -94,10 +94,8 @@ static int filter_frame(AVFilterLink *link, AVFrame *frame)
     AVFilterContext *ctx = link->dst;
     int ret;
 
-    if (ret = av_frame_make_writable(frame))
-        return ret;
-
-    if (ret = ctx->internal->execute(ctx, do_despill_slice, frame, NULL, FFMIN(frame->height, ff_filter_get_nb_threads(ctx))))
+    if (ret = ff_filter_execute(ctx, do_despill_slice, frame, NULL,
+                                FFMIN(frame->height, ff_filter_get_nb_threads(ctx))))
         return ret;
 
     return ff_filter_frame(ctx->outputs[0], frame);
@@ -134,6 +132,7 @@ static const AVFilterPad despill_inputs[] = {
         .name         = "default",
         .type         = AVMEDIA_TYPE_VIDEO,
         .filter_frame = filter_frame,
+        .needs_writable = 1,
     },
     { NULL }
 };
