@@ -485,8 +485,8 @@ static int compute_sat_hue_metrics8(AVFilterContext *ctx, void *arg, int jobnr, 
         for (i = 0; i < s->chromaw; i++) {
             const int yuvu = p_u[i];
             const int yuvv = p_v[i];
-            p_sat[i] = hypot(yuvu - 128, yuvv - 128); // int or round?
-            ((int16_t*)p_hue)[i] = fmod(floor((180 / M_PI) * atan2f(yuvu-128, yuvv-128) + 180), 360.);
+            p_sat[i] = hypotf(yuvu - 128, yuvv - 128); // int or round?
+            ((int16_t*)p_hue)[i] = fmodf(floorf((180.f / M_PI) * atan2f(yuvu-128, yuvv-128) + 180.f), 360.f);
         }
         p_u   += lsz_u;
         p_v   += lsz_v;
@@ -524,8 +524,8 @@ static int compute_sat_hue_metrics16(AVFilterContext *ctx, void *arg, int jobnr,
         for (i = 0; i < s->chromaw; i++) {
             const int yuvu = p_u[i];
             const int yuvv = p_v[i];
-            p_sat[i] = hypot(yuvu - mid, yuvv - mid); // int or round?
-            ((int16_t*)p_hue)[i] = fmod(floor((180 / M_PI) * atan2f(yuvu-mid, yuvv-mid) + 180), 360.);
+            p_sat[i] = hypotf(yuvu - mid, yuvv - mid); // int or round?
+            ((int16_t*)p_hue)[i] = fmodf(floorf((180.f / M_PI) * atan2f(yuvu-mid, yuvv-mid) + 180.f), 360.f);
         }
         p_u   += lsz_u;
         p_v   += lsz_v;
@@ -997,7 +997,6 @@ static const AVFilterPad signalstats_inputs[] = {
         .type           = AVMEDIA_TYPE_VIDEO,
         .filter_frame   = filter_frame,
     },
-    { NULL }
 };
 
 static const AVFilterPad signalstats_outputs[] = {
@@ -1006,7 +1005,6 @@ static const AVFilterPad signalstats_outputs[] = {
         .config_props   = config_output,
         .type           = AVMEDIA_TYPE_VIDEO,
     },
-    { NULL }
 };
 
 const AVFilter ff_vf_signalstats = {
@@ -1016,8 +1014,8 @@ const AVFilter ff_vf_signalstats = {
     .uninit        = uninit,
     .query_formats = query_formats,
     .priv_size     = sizeof(SignalstatsContext),
-    .inputs        = signalstats_inputs,
-    .outputs       = signalstats_outputs,
+    FILTER_INPUTS(signalstats_inputs),
+    FILTER_OUTPUTS(signalstats_outputs),
     .priv_class    = &signalstats_class,
     .flags         = AVFILTER_FLAG_SLICE_THREADS,
 };
