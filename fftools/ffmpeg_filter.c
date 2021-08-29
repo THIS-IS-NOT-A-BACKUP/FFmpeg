@@ -969,8 +969,14 @@ int configure_filtergraph(FilterGraph *fg)
         AVDictionaryEntry *e = NULL;
 
         fg->graph->nb_threads = filter_nbthreads;
+        if (!fg->graph->nb_threads) {
+            e = av_dict_get(ost->encoder_opts, "threads", NULL, 0);
+            if (e)
+                av_opt_set(fg->graph, "threads", e->value, 0);
+        }
 
         args[0] = 0;
+        e       = NULL;
         while ((e = av_dict_get(ost->sws_dict, "", e,
                                 AV_DICT_IGNORE_SUFFIX))) {
             av_strlcatf(args, sizeof(args), "%s=%s:", e->key, e->value);
@@ -985,6 +991,7 @@ int configure_filtergraph(FilterGraph *fg)
         }
 
         args[0] = 0;
+        e       = NULL;
         while ((e = av_dict_get(ost->swr_opts, "", e,
                                 AV_DICT_IGNORE_SUFFIX))) {
             av_strlcatf(args, sizeof(args), "%s=%s:", e->key, e->value);
@@ -994,16 +1001,13 @@ int configure_filtergraph(FilterGraph *fg)
         av_opt_set(fg->graph, "aresample_swr_opts", args, 0);
 
         args[0] = '\0';
+        e       = NULL;
         while ((e = av_dict_get(fg->outputs[0]->ost->resample_opts, "", e,
                                 AV_DICT_IGNORE_SUFFIX))) {
             av_strlcatf(args, sizeof(args), "%s=%s:", e->key, e->value);
         }
         if (strlen(args))
             args[strlen(args) - 1] = '\0';
-
-        e = av_dict_get(ost->encoder_opts, "threads", NULL, 0);
-        if (e)
-            av_opt_set(fg->graph, "threads", e->value, 0);
     } else {
         fg->graph->nb_threads = filter_complex_nbthreads;
     }
