@@ -249,9 +249,10 @@ typedef struct XMADecodeCtx {
     AVFrame *frames[XMA_MAX_STREAMS];
     int current_stream;
     int num_streams;
-    AVAudioFifo *samples[2][XMA_MAX_CHANNELS];
+    AVAudioFifo *samples[2][XMA_MAX_STREAMS];
     int start_channel[XMA_MAX_STREAMS];
     int trim_start, trim_end;
+    int flushed;
 } XMADecodeCtx;
 
 /**
@@ -574,7 +575,8 @@ static av_cold int decode_init(WMAProDecodeCtx *s, AVCodecContext *avctx, int nu
     if (avctx->debug & FF_DEBUG_BITSTREAM)
         dump_context(s);
 
-    avctx->channel_layout = channel_mask;
+    if (avctx->codec_id == AV_CODEC_ID_WMAPRO)
+        avctx->channel_layout = channel_mask;
 
     ff_thread_once(&init_static_once, decode_init_static);
 
@@ -1829,7 +1831,7 @@ static int xma_decode_packet(AVCodecContext *avctx, void *data,
     XMADecodeCtx *s = avctx->priv_data;
     int got_stream_frame_ptr = 0;
     AVFrame *frame = data;
-    int i, ret, eof;
+    int i, ret = 0, eof = 0;
 
     if (!s->frames[s->current_stream]->data[0]) {
         avctx->internal->skip_samples = 64;
@@ -1844,24 +1846,38 @@ static int xma_decode_packet(AVCodecContext *avctx, void *data,
             return ret;
     }
     /* decode current stream packet */
-    ret = decode_packet(avctx, &s->xma[s->current_stream], s->frames[s->current_stream],
-                        &got_stream_frame_ptr, avpkt);
-    eof = s->xma[s->current_stream].eof_done;
-    if (s->xma[s->current_stream].trim_start)
-        s->trim_start = s->xma[s->current_stream].trim_start;
-    if (s->xma[s->current_stream].trim_end)
-        s->trim_end = s->xma[s->current_stream].trim_end;
+    if (!s->xma[s->current_stream].eof_done) {
+        ret = decode_packet(avctx, &s->xma[s->current_stream], s->frames[s->current_stream],
+                            &got_stream_frame_ptr, avpkt);
+    }
+
+    if (!avpkt->size) {
+        eof = 1;
+
+        for (i = 0; i < s->num_streams; i++) {
+            if (!s->xma[i].eof_done) {
+                ret = decode_packet(avctx, &s->xma[i], s->frames[i],
+                                    &got_stream_frame_ptr, avpkt);
+            }
+
+            eof &= s->xma[i].eof_done;
+        }
+    }
+
+    if (s->xma[0].trim_start)
+        s->trim_start = s->xma[0].trim_start;
+    if (s->xma[0].trim_end)
+        s->trim_end = s->xma[0].trim_end;
 
     /* copy stream samples (1/2ch) to sample buffer (Nch) */
     if (got_stream_frame_ptr) {
-        int start_ch = s->start_channel[s->current_stream];
         const int nb_samples = s->frames[s->current_stream]->nb_samples;
         void *left[1] = { s->frames[s->current_stream]->extended_data[0] };
         void *right[1] = { s->frames[s->current_stream]->extended_data[1] };
 
-        av_audio_fifo_write(s->samples[0][start_ch + 0], left, nb_samples);
+        av_audio_fifo_write(s->samples[0][s->current_stream], left, nb_samples);
         if (s->xma[s->current_stream].nb_channels > 1)
-            av_audio_fifo_write(s->samples[1][start_ch + 1], right, nb_samples);
+            av_audio_fifo_write(s->samples[1][s->current_stream], right, nb_samples);
     } else if (ret < 0) {
         s->current_stream = 0;
         return ret;
@@ -1892,40 +1908,38 @@ static int xma_decode_packet(AVCodecContext *avctx, void *data,
         }
 
         /* all other streams skip next packet */
-        for (i = 0; i < s->num_streams; i++)
-            s->xma[i].skip_packets = FFMAX(0, s->xma[i].skip_packets - 1);
-
         for (i = 0; i < s->num_streams; i++) {
-            int start_ch = s->start_channel[s->current_stream];
-
-            nb_samples = FFMIN(nb_samples, av_audio_fifo_size(s->samples[0][start_ch]));
+            s->xma[i].skip_packets = FFMAX(0, s->xma[i].skip_packets - 1);
+            nb_samples = FFMIN(nb_samples, av_audio_fifo_size(s->samples[0][i]));
         }
 
+        if (!eof && avpkt->size)
+            nb_samples -= FFMIN(nb_samples, 4096);
+
         /* copy samples from buffer to output if possible */
-        if (nb_samples > 4096 || eof) {
+        if ((nb_samples > 0 || eof || !avpkt->size) && !s->flushed) {
             int bret;
 
             if (eof) {
-                nb_samples -= FFMIN(nb_samples, s->trim_end + s->trim_start - 128 - 64);
-                s->trim_end = s->trim_start = 0;
+                nb_samples -= av_clip(s->trim_end + s->trim_start - 128 - 64, 0, nb_samples);
+                s->flushed = 1;
             }
+
             frame->nb_samples = nb_samples;
-            if (frame->nb_samples <= 0)
-                return ret;
             if ((bret = ff_get_buffer(avctx, frame, 0)) < 0)
                 return bret;
 
             for (i = 0; i < s->num_streams; i++) {
-                const int start_ch = s->start_channel[s->current_stream];
-                void *left[1] = { frame->extended_data[0] };
-                void *right[1] = { frame->extended_data[1] };
+                const int start_ch = s->start_channel[i];
+                void *left[1] = { frame->extended_data[start_ch + 0] };
+                void *right[1] = { frame->extended_data[start_ch + 1] };
 
-                av_audio_fifo_read(s->samples[0][start_ch + 0], left, nb_samples);
-                if (s->xma[s->current_stream].nb_channels > 1)
-                    av_audio_fifo_read(s->samples[1][start_ch + 1], right, nb_samples);
+                av_audio_fifo_read(s->samples[0][i], left, nb_samples);
+                if (s->xma[i].nb_channels > 1)
+                    av_audio_fifo_read(s->samples[1][i], right, nb_samples);
             }
 
-            *got_frame_ptr = 1;
+            *got_frame_ptr = nb_samples > 0;
         }
     }
 
@@ -1941,8 +1955,9 @@ static av_cold int xma_decode_init(AVCodecContext *avctx)
         return AVERROR_INVALIDDATA;
 
     /* get stream config */
-    if (avctx->codec_id == AV_CODEC_ID_XMA2 && avctx->extradata_size == 34) { /* XMA2WAVEFORMATEX */
-        s->num_streams = (avctx->channels + 1) / 2;
+    if (avctx->codec_id == AV_CODEC_ID_XMA2 && avctx->extradata_size >= 34) { /* XMA2WAVEFORMATEX */
+        s->num_streams = AV_RL16(avctx->extradata);
+        avctx->channel_layout = AV_RL32(avctx->extradata + 2);
     } else if (avctx->codec_id == AV_CODEC_ID_XMA2 && avctx->extradata_size >= 2) { /* XMA2WAVEFORMAT */
         s->num_streams = avctx->extradata[1];
         if (avctx->extradata_size != (32 + ((avctx->extradata[0]==3)?0:8) + 4*s->num_streams)) {
@@ -1986,7 +2001,7 @@ static av_cold int xma_decode_init(AVCodecContext *avctx)
     if (start_channels != avctx->channels)
         return AVERROR_INVALIDDATA;
 
-    for (int i = 0; i < XMA_MAX_CHANNELS; i++) {
+    for (int i = 0; i < XMA_MAX_STREAMS; i++) {
         s->samples[0][i] = av_audio_fifo_alloc(avctx->sample_fmt, 1, 64 * 512);
         s->samples[1][i] = av_audio_fifo_alloc(avctx->sample_fmt, 1, 64 * 512);
         if (!s->samples[0][i] || !s->samples[1][i])
@@ -2007,7 +2022,7 @@ static av_cold int xma_decode_end(AVCodecContext *avctx)
     }
     s->num_streams = 0;
 
-    for (i = 0; i < XMA_MAX_CHANNELS; i++) {
+    for (i = 0; i < XMA_MAX_STREAMS; i++) {
         av_audio_fifo_free(s->samples[0][i]);
         av_audio_fifo_free(s->samples[1][i]);
     }
@@ -2045,7 +2060,7 @@ static void xma_flush(AVCodecContext *avctx)
     XMADecodeCtx *s = avctx->priv_data;
     int i;
 
-    for (i = 0; i < XMA_MAX_CHANNELS; i++) {
+    for (i = 0; i < XMA_MAX_STREAMS; i++) {
         av_audio_fifo_reset(s->samples[0][i]);
         av_audio_fifo_reset(s->samples[1][i]);
     }
@@ -2054,6 +2069,7 @@ static void xma_flush(AVCodecContext *avctx)
         flush(&s->xma[i]);
 
     s->current_stream = 0;
+    s->flushed = 0;
 }
 
 /**
