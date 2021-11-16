@@ -3168,9 +3168,6 @@ static int init_output_stream_streamcopy(OutputStream *ost)
     if (ost->st->duration <= 0 && ist->st->duration > 0)
         ost->st->duration = av_rescale_q(ist->st->duration, ist->st->time_base, ost->st->time_base);
 
-    // copy disposition
-    ost->st->disposition = ist->st->disposition;
-
     if (ist->st->nb_side_data) {
         for (i = 0; i < ist->st->nb_side_data; i++) {
             const AVPacketSideData *sd_src = &ist->st->side_data[i];
@@ -3358,7 +3355,7 @@ static int init_output_stream_encode(OutputStream *ost, AVFrame *frame)
     AVCodecContext *enc_ctx = ost->enc_ctx;
     AVCodecContext *dec_ctx = NULL;
     AVFormatContext *oc = output_files[ost->file_index]->ctx;
-    int j, ret;
+    int ret;
 
     set_encoder_id(output_files[ost->file_index], ost);
 
@@ -3368,21 +3365,9 @@ static int init_output_stream_encode(OutputStream *ost, AVFrame *frame)
     av_dict_set(&ost->st->metadata, "rotate", NULL, 0);
 
     if (ist) {
-        ost->st->disposition          = ist->st->disposition;
-
         dec_ctx = ist->dec_ctx;
 
         enc_ctx->chroma_sample_location = dec_ctx->chroma_sample_location;
-    } else {
-        for (j = 0; j < oc->nb_streams; j++) {
-            AVStream *st = oc->streams[j];
-            if (st != ost->st && st->codecpar->codec_type == ost->st->codecpar->codec_type)
-                break;
-        }
-        if (j == oc->nb_streams)
-            if (ost->st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO ||
-                ost->st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
-                ost->st->disposition = AV_DISPOSITION_DEFAULT;
     }
 
     if (enc_ctx->codec_type == AVMEDIA_TYPE_VIDEO) {
@@ -3659,40 +3644,6 @@ static int init_output_stream(OutputStream *ost, AVFrame *frame,
             ost->st->duration = av_rescale_q(ist->st->duration, ist->st->time_base, ost->st->time_base);
     } else if (ost->stream_copy) {
         ret = init_output_stream_streamcopy(ost);
-        if (ret < 0)
-            return ret;
-    }
-
-    // parse user provided disposition, and update stream values
-    if (ost->disposition) {
-        static const AVOption opts[] = {
-            { "disposition"         , NULL, 0, AV_OPT_TYPE_FLAGS, { .i64 = 0 }, INT64_MIN, INT64_MAX, .unit = "flags" },
-            { "default"             , NULL, 0, AV_OPT_TYPE_CONST, { .i64 = AV_DISPOSITION_DEFAULT           },    .unit = "flags" },
-            { "dub"                 , NULL, 0, AV_OPT_TYPE_CONST, { .i64 = AV_DISPOSITION_DUB               },    .unit = "flags" },
-            { "original"            , NULL, 0, AV_OPT_TYPE_CONST, { .i64 = AV_DISPOSITION_ORIGINAL          },    .unit = "flags" },
-            { "comment"             , NULL, 0, AV_OPT_TYPE_CONST, { .i64 = AV_DISPOSITION_COMMENT           },    .unit = "flags" },
-            { "lyrics"              , NULL, 0, AV_OPT_TYPE_CONST, { .i64 = AV_DISPOSITION_LYRICS            },    .unit = "flags" },
-            { "karaoke"             , NULL, 0, AV_OPT_TYPE_CONST, { .i64 = AV_DISPOSITION_KARAOKE           },    .unit = "flags" },
-            { "forced"              , NULL, 0, AV_OPT_TYPE_CONST, { .i64 = AV_DISPOSITION_FORCED            },    .unit = "flags" },
-            { "hearing_impaired"    , NULL, 0, AV_OPT_TYPE_CONST, { .i64 = AV_DISPOSITION_HEARING_IMPAIRED  },    .unit = "flags" },
-            { "visual_impaired"     , NULL, 0, AV_OPT_TYPE_CONST, { .i64 = AV_DISPOSITION_VISUAL_IMPAIRED   },    .unit = "flags" },
-            { "clean_effects"       , NULL, 0, AV_OPT_TYPE_CONST, { .i64 = AV_DISPOSITION_CLEAN_EFFECTS     },    .unit = "flags" },
-            { "attached_pic"        , NULL, 0, AV_OPT_TYPE_CONST, { .i64 = AV_DISPOSITION_ATTACHED_PIC      },    .unit = "flags" },
-            { "captions"            , NULL, 0, AV_OPT_TYPE_CONST, { .i64 = AV_DISPOSITION_CAPTIONS          },    .unit = "flags" },
-            { "descriptions"        , NULL, 0, AV_OPT_TYPE_CONST, { .i64 = AV_DISPOSITION_DESCRIPTIONS      },    .unit = "flags" },
-            { "dependent"           , NULL, 0, AV_OPT_TYPE_CONST, { .i64 = AV_DISPOSITION_DEPENDENT         },    .unit = "flags" },
-            { "metadata"            , NULL, 0, AV_OPT_TYPE_CONST, { .i64 = AV_DISPOSITION_METADATA          },    .unit = "flags" },
-            { NULL },
-        };
-        static const AVClass class = {
-            .class_name = "",
-            .item_name  = av_default_item_name,
-            .option     = opts,
-            .version    = LIBAVUTIL_VERSION_INT,
-        };
-        const AVClass *pclass = &class;
-
-        ret = av_opt_eval_flags(&pclass, &opts[0], ost->disposition, &ost->st->disposition);
         if (ret < 0)
             return ret;
     }

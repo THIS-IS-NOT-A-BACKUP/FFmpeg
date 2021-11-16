@@ -90,37 +90,39 @@ const char *ff_vk_ret2str(VkResult res)
 }
 
 void ff_vk_qf_init(AVFilterContext *avctx, FFVkQueueFamilyCtx *qf,
-                   VkQueueFlagBits dev_family, int queue_limit)
+                   VkQueueFlagBits dev_family, int nb_queues)
 {
     FFVulkanContext *s = avctx->priv;
-
-    if (!queue_limit)
-        queue_limit = INT32_MAX;
 
     switch (dev_family) {
     case VK_QUEUE_GRAPHICS_BIT:
         qf->queue_family = s->hwctx->queue_family_index;
-        qf->nb_queues = FFMIN(s->hwctx->nb_graphics_queues, queue_limit);
-        return;
+        qf->actual_queues = s->hwctx->nb_graphics_queues;
+        break;
     case VK_QUEUE_COMPUTE_BIT:
         qf->queue_family = s->hwctx->queue_family_comp_index;
-        qf->nb_queues = FFMIN(s->hwctx->nb_comp_queues, queue_limit);
-        return;
+        qf->actual_queues = s->hwctx->nb_comp_queues;
+        break;
     case VK_QUEUE_TRANSFER_BIT:
         qf->queue_family = s->hwctx->queue_family_tx_index;
-        qf->nb_queues = FFMIN(s->hwctx->nb_tx_queues, queue_limit);
-        return;
+        qf->actual_queues = s->hwctx->nb_tx_queues;
+        break;
     case VK_QUEUE_VIDEO_ENCODE_BIT_KHR:
         qf->queue_family = s->hwctx->queue_family_encode_index;
-        qf->nb_queues = FFMIN(s->hwctx->nb_encode_queues, queue_limit);
-        return;
+        qf->actual_queues = s->hwctx->nb_encode_queues;
+        break;
     case VK_QUEUE_VIDEO_DECODE_BIT_KHR:
         qf->queue_family = s->hwctx->queue_family_decode_index;
-        qf->nb_queues = FFMIN(s->hwctx->nb_decode_queues, queue_limit);
-        return;
+        qf->actual_queues = s->hwctx->nb_decode_queues;
+        break;
     default:
         av_assert0(0); /* Should never happen */
     }
+
+    if (!nb_queues)
+        qf->nb_queues = qf->actual_queues;
+    else
+        qf->nb_queues = nb_queues;
 
     return;
 }
@@ -435,7 +437,8 @@ int ff_vk_create_exec_ctx(AVFilterContext *avctx, FFVkExecContext **ctx,
 
     for (int i = 0; i < qf->nb_queues; i++) {
         FFVkQueueCtx *q = &e->queues[i];
-        vk->GetDeviceQueue(s->hwctx->act_dev, qf->queue_family, i, &q->queue);
+        vk->GetDeviceQueue(s->hwctx->act_dev, qf->queue_family,
+                           i % qf->actual_queues, &q->queue);
     }
 
     *ctx = e;
@@ -1105,6 +1108,13 @@ int ff_vk_add_descriptor_set(AVFilterContext *avctx, FFVulkanPipeline *pl,
     if (!pl->desc_layout)
         return AVERROR(ENOMEM);
 
+    pl->desc_set_initialized = av_realloc_array(pl->desc_set_initialized,
+                                                sizeof(*pl->desc_set_initialized),
+                                                pl->descriptor_sets_num + 1);
+    if (!pl->desc_set_initialized)
+        return AVERROR(ENOMEM);
+
+    pl->desc_set_initialized[pl->descriptor_sets_num] = 0;
     layout = &pl->desc_layout[pl->desc_layout_num];
 
     { /* Create descriptor set layout descriptions */
@@ -1244,6 +1254,19 @@ void ff_vk_update_descriptor_set(AVFilterContext *avctx, FFVulkanPipeline *pl,
 {
     FFVulkanContext *s = avctx->priv;
     FFVulkanFunctions *vk = &s->vkfn;
+
+    /* If a set has never been updated, update all queues' sets. */
+    if (!pl->desc_set_initialized[set_id]) {
+        for (int i = 0; i < pl->qf->nb_queues; i++) {
+            int idx = set_id*pl->qf->nb_queues + i;
+            vk->UpdateDescriptorSetWithTemplate(s->hwctx->act_dev,
+                                                pl->desc_set[idx],
+                                                pl->desc_template[idx],
+                                                s);
+        }
+        pl->desc_set_initialized[set_id] = 1;
+        return;
+    }
 
     set_id = set_id*pl->qf->nb_queues + pl->qf->cur_queue;
 
@@ -1514,6 +1537,7 @@ static void free_pipeline(FFVulkanContext *s, FFVulkanPipeline *pl)
     av_freep(&pl->shaders);
     av_freep(&pl->desc_layout);
     av_freep(&pl->desc_template);
+    av_freep(&pl->desc_set_initialized);
     av_freep(&pl->push_consts);
     pl->push_consts_num = 0;
 
