@@ -124,7 +124,7 @@ static av_cold void init_gaussian_params(GBlurVulkanContext *s)
 
 static av_cold int init_filter(AVFilterContext *ctx, AVFrame *in)
 {
-    int err;
+    int err = 0;
     char *kernel_def;
     uint8_t *kernel_mapped;
     FFSPIRVShader *shd;
@@ -295,8 +295,6 @@ static av_cold int init_filter(AVFilterContext *ctx, AVFrame *in)
     RET(ff_vk_create_exec_ctx(ctx, &s->exec, &s->qf));
 
     s->initialized = 1;
-
-    return 0;
 
 fail:
     av_free(kernel_def);
