@@ -19,7 +19,7 @@
 #include "libavutil/file.h"
 #include "libavutil/opt.h"
 #include "internal.h"
-#include "vulkan.h"
+#include "vulkan_filter.h"
 #include "scale_eval.h"
 
 #include <libplacebo/renderer.h>
@@ -270,7 +270,7 @@ static void libplacebo_uninit(AVFilterContext *avctx)
     pl_renderer_destroy(&s->renderer);
     pl_vulkan_destroy(&s->vulkan);
     pl_log_destroy(&s->log);
-    ff_vk_filter_uninit(avctx);
+    ff_vk_uninit(&s->vkctx);
     s->initialized = 0;
     s->gpu = NULL;
 }
