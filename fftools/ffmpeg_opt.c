@@ -34,6 +34,7 @@
 #include "libavutil/avassert.h"
 #include "libavutil/avstring.h"
 #include "libavutil/avutil.h"
+#include "libavutil/bprint.h"
 #include "libavutil/channel_layout.h"
 #include "libavutil/intreadwrite.h"
 #include "libavutil/fifo.h"
@@ -146,7 +147,7 @@ float dts_error_threshold   = 3600*30;
 
 int audio_volume      = 256;
 int audio_sync_method = 0;
-int video_sync_method = VSYNC_AUTO;
+enum VideoSyncMethod video_sync_method = VSYNC_AUTO;
 float frame_drop_threshold = 0;
 int do_benchmark      = 0;
 int do_benchmark_all  = 0;
@@ -1351,23 +1352,18 @@ static int open_input_file(OptionsContext *o, const char *filename)
     return 0;
 }
 
-static uint8_t *get_line(AVIOContext *s)
+static char *get_line(AVIOContext *s, AVBPrint *bprint)
 {
-    AVIOContext *line;
-    uint8_t *buf;
     char c;
 
-    if (avio_open_dyn_buf(&line) < 0) {
+    while ((c = avio_r8(s)) && c != '\n')
+        av_bprint_chars(bprint, c, 1);
+
+    if (!av_bprint_is_complete(bprint)) {
         av_log(NULL, AV_LOG_FATAL, "Could not alloc buffer for reading preset.\n");
         exit_program(1);
     }
-
-    while ((c = avio_r8(s)) && c != '\n')
-        avio_w8(line, c);
-    avio_w8(line, 0);
-    avio_close_dyn_buf(line, &buf);
-
-    return buf;
+    return bprint->str;
 }
 
 static int get_preset_file_2(const char *preset_name, const char *codec_name, AVIOContext **s)
@@ -1498,20 +1494,21 @@ static OutputStream *new_output_stream(OptionsContext *o, AVFormatContext *oc, e
         ost->autoscale = 1;
         MATCH_PER_STREAM_OPT(autoscale, i, ost->autoscale, oc, st);
         if (preset && (!(ret = get_preset_file_2(preset, ost->enc->name, &s)))) {
+            AVBPrint bprint;
+            av_bprint_init(&bprint, 0, AV_BPRINT_SIZE_UNLIMITED);
             do  {
-                buf = get_line(s);
-                if (!buf[0] || buf[0] == '#') {
-                    av_free(buf);
+                av_bprint_clear(&bprint);
+                buf = get_line(s, &bprint);
+                if (!buf[0] || buf[0] == '#')
                     continue;
-                }
                 if (!(arg = strchr(buf, '='))) {
                     av_log(NULL, AV_LOG_FATAL, "Invalid line found in the preset file.\n");
                     exit_program(1);
                 }
                 *arg++ = 0;
                 av_dict_set(&ost->encoder_opts, buf, arg, AV_DICT_DONT_OVERWRITE);
-                av_free(buf);
             } while (!s->eof_reached);
+            av_bprint_finalize(&bprint, NULL);
             avio_closep(&s);
         }
         if (ret) {
@@ -1645,29 +1642,26 @@ static void parse_matrix_coeffs(uint16_t *dest, const char *str)
 }
 
 /* read file contents into a string */
-static uint8_t *read_file(const char *filename)
+static char *read_file(const char *filename)
 {
     AVIOContext *pb      = NULL;
-    AVIOContext *dyn_buf = NULL;
     int ret = avio_open(&pb, filename, AVIO_FLAG_READ);
-    uint8_t buf[1024], *str;
+    AVBPrint bprint;
+    char *str;
 
     if (ret < 0) {
         av_log(NULL, AV_LOG_ERROR, "Error opening file %s.\n", filename);
         return NULL;
     }
 
-    ret = avio_open_dyn_buf(&dyn_buf);
+    av_bprint_init(&bprint, 0, AV_BPRINT_SIZE_UNLIMITED);
+    ret = avio_read_to_bprint(pb, &bprint, SIZE_MAX);
+    avio_closep(&pb);
     if (ret < 0) {
-        avio_closep(&pb);
+        av_bprint_finalize(&bprint, NULL);
         return NULL;
     }
-    while ((ret = avio_read(pb, buf, sizeof(buf))) > 0)
-        avio_write(dyn_buf, buf, ret);
-    avio_w8(dyn_buf, 0);
-    avio_closep(&pb);
-
-    ret = avio_close_dyn_buf(dyn_buf, &str);
+    ret = av_bprint_finalize(&bprint, &str);
     if (ret < 0)
         return NULL;
     return str;
@@ -1737,7 +1731,7 @@ static OutputStream *new_video_stream(OptionsContext *o, AVFormatContext *oc, in
 
     if ((frame_rate || max_frame_rate) &&
         video_sync_method == VSYNC_PASSTHROUGH)
-        av_log(NULL, AV_LOG_ERROR, "Using -vsync 0 and -r/-fpsmax can produce invalid output files\n");
+        av_log(NULL, AV_LOG_ERROR, "Using -vsync passthrough and -r/-fpsmax can produce invalid output files\n");
 
     MATCH_PER_STREAM_OPT(frame_aspect_ratios, str, frame_aspect_ratio, oc, st);
     if (frame_aspect_ratio) {
@@ -1901,6 +1895,30 @@ static OutputStream *new_video_stream(OptionsContext *o, AVFormatContext *oc, in
         ost->top_field_first = -1;
         MATCH_PER_STREAM_OPT(top_field_first, i, ost->top_field_first, oc, st);
 
+        ost->vsync_method = video_sync_method;
+        if (ost->vsync_method == VSYNC_AUTO) {
+            if (!strcmp(oc->oformat->name, "avi")) {
+                ost->vsync_method = VSYNC_VFR;
+            } else {
+                ost->vsync_method = (oc->oformat->flags & AVFMT_VARIABLE_FPS)       ?
+                                     ((oc->oformat->flags & AVFMT_NOTIMESTAMPS) ?
+                                      VSYNC_PASSTHROUGH : VSYNC_VFR)                :
+                                     VSYNC_CFR;
+            }
+
+            if (ost->source_index >= 0 && ost->vsync_method == VSYNC_CFR) {
+                const InputStream *ist = input_streams[ost->source_index];
+                const InputFile *ifile = input_files[ist->file_index];
+
+                if (ifile->nb_streams == 1 && ifile->input_ts_offset == 0)
+                    ost->vsync_method = VSYNC_VSCFR;
+            }
+
+            if (ost->vsync_method == VSYNC_CFR && copy_ts) {
+                ost->vsync_method = VSYNC_VSCFR;
+            }
+        }
+        ost->is_cfr = (ost->vsync_method == VSYNC_CFR || ost->vsync_method == VSYNC_VSCFR);
 
         ost->avfilter = get_ost_filters(o, oc, ost);
         if (!ost->avfilter)
@@ -3197,8 +3215,11 @@ static int opt_vsync(void *optctx, const char *opt, const char *arg)
     else if (!av_strcasecmp(arg, "passthrough")) video_sync_method = VSYNC_PASSTHROUGH;
     else if (!av_strcasecmp(arg, "drop"))        video_sync_method = VSYNC_DROP;
 
-    if (video_sync_method == VSYNC_AUTO)
+    if (video_sync_method == VSYNC_AUTO) {
         video_sync_method = parse_number_or_die("vsync", arg, OPT_INT, VSYNC_AUTO, VSYNC_VFR);
+        av_log(NULL, AV_LOG_WARNING, "Passing a number to -vsync is deprecated,"
+               " use a string argument as described in the manual.\n");
+    }
     return 0;
 }
 
@@ -3276,7 +3297,7 @@ static int opt_filter_complex(void *optctx, const char *opt, const char *arg)
 static int opt_filter_complex_script(void *optctx, const char *opt, const char *arg)
 {
     FilterGraph *fg;
-    uint8_t *graph_desc = read_file(arg);
+    char *graph_desc = read_file(arg);
     if (!graph_desc)
         return AVERROR(EINVAL);
 
