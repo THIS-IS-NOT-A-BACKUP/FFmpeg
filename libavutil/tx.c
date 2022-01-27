@@ -439,7 +439,7 @@ av_cold int ff_tx_init_subtx(AVTXContext *s, enum AVTXType type,
         ff_tx_codelet_list_double_c,
         ff_tx_codelet_list_int32_c,
         ff_tx_null_list,
-#if ARCH_X86
+#if HAVE_X86ASM
         ff_tx_codelet_list_float_x86,
 #endif
     };
@@ -496,7 +496,8 @@ av_cold int ff_tx_init_subtx(AVTXContext *s, enum AVTXType type,
                 continue;
 
             /* Check if the CPU supports the required ISA */
-            if (!(!cd->cpu_flags || (cpu_flags & (cd->cpu_flags & ~slow_mask))))
+            if (cd->cpu_flags != FF_TX_CPU_FLAGS_ALL &&
+                !(cpu_flags & (cd->cpu_flags & ~slow_mask)))
                 continue;
 
             /* Check for factors */

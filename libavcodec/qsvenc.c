@@ -364,6 +364,10 @@ static void dump_video_param(AVCodecContext *avctx, QSVEncContext *q,
 #if QSV_VERSION_ATLEAST(1, 26)
     av_log(avctx, AV_LOG_VERBOSE, "TransformSkip: %s \n", print_threestate(co3->TransformSkip));
 #endif
+
+#if QSV_VERSION_ATLEAST(1, 16)
+    av_log(avctx, AV_LOG_VERBOSE, "IntRefCycleDist: %"PRId16"\n", co3->IntRefCycleDist);
+#endif
 }
 
 static void dump_video_vp9_param(AVCodecContext *avctx, QSVEncContext *q,
@@ -865,22 +869,10 @@ static int init_video_param(AVCodecContext *avctx, QSVEncContext *q)
 
 #if QSV_HAVE_CO2
         if (avctx->codec_id == AV_CODEC_ID_H264) {
-            if (q->int_ref_type >= 0)
-                q->extco2.IntRefType = q->int_ref_type;
-            if (q->int_ref_cycle_size >= 0)
-                q->extco2.IntRefCycleSize = q->int_ref_cycle_size;
-            if (q->int_ref_qp_delta != INT16_MIN)
-                q->extco2.IntRefQPDelta = q->int_ref_qp_delta;
-
             if (q->bitrate_limit >= 0)
                 q->extco2.BitrateLimit = q->bitrate_limit ? MFX_CODINGOPTION_ON : MFX_CODINGOPTION_OFF;
             if (q->mbbrc >= 0)
                 q->extco2.MBBRC = q->mbbrc ? MFX_CODINGOPTION_ON : MFX_CODINGOPTION_OFF;
-
-#if QSV_HAVE_MAX_SLICE_SIZE
-            if (q->max_slice_size >= 0)
-                q->extco2.MaxSliceSize = q->max_slice_size;
-#endif
 
 #if QSV_HAVE_TRELLIS
             if (avctx->trellis >= 0)
@@ -893,8 +885,6 @@ static int init_video_param(AVCodecContext *avctx, QSVEncContext *q)
             q->extco2.LookAheadDS = q->look_ahead_downsampling;
             q->extco2.RepeatPPS   = q->repeat_pps ? MFX_CODINGOPTION_ON : MFX_CODINGOPTION_OFF;
 
-            if (q->b_strategy >= 0)
-                q->extco2.BRefType = q->b_strategy ? MFX_B_REF_PYRAMID : MFX_B_REF_OFF;
             if (q->adaptive_i >= 0)
                 q->extco2.AdaptiveI = q->adaptive_i ? MFX_CODINGOPTION_ON : MFX_CODINGOPTION_OFF;
             if (q->adaptive_b >= 0)
@@ -907,10 +897,24 @@ static int init_video_param(AVCodecContext *avctx, QSVEncContext *q)
                 q->extco2.ExtBRC = q->extbrc ? MFX_CODINGOPTION_ON : MFX_CODINGOPTION_OFF;
             if (q->max_frame_size >= 0)
                 q->extco2.MaxFrameSize = q->max_frame_size;
+            if (q->int_ref_type >= 0)
+                q->extco2.IntRefType = q->int_ref_type;
+            if (q->int_ref_cycle_size >= 0)
+                q->extco2.IntRefCycleSize = q->int_ref_cycle_size;
+            if (q->int_ref_qp_delta != INT16_MIN)
+                q->extco2.IntRefQPDelta = q->int_ref_qp_delta;
+#if QSV_HAVE_MAX_SLICE_SIZE
+            if (q->max_slice_size >= 0)
+                q->extco2.MaxSliceSize = q->max_slice_size;
+#endif
 #if QSV_HAVE_DISABLEDEBLOCKIDC
             q->extco2.DisableDeblockingIdc = q->dblk_idc;
 #endif
 
+#if QSV_VERSION_ATLEAST(1, 8)
+            if (q->b_strategy >= 0)
+                q->extco2.BRefType = q->b_strategy ? MFX_B_REF_PYRAMID : MFX_B_REF_OFF;
+#endif
 #if QSV_VERSION_ATLEAST(1, 9)
             if (avctx->qmin >= 0 && avctx->qmax >= 0 && avctx->qmin > avctx->qmax) {
                 av_log(avctx, AV_LOG_ERROR, "qmin and or qmax are set but invalid, please make sure min <= max\n");
@@ -972,6 +976,10 @@ static int init_video_param(AVCodecContext *avctx, QSVEncContext *q)
                 av_log(avctx, AV_LOG_WARNING,
                        "Please set max_b_frames(-bf) to 0 to enable P-pyramid\n");
             }
+#endif
+#if QSV_VERSION_ATLEAST(1, 16)
+            if (q->int_ref_cycle_dist >= 0)
+                q->extco3.IntRefCycleDist = q->int_ref_cycle_dist;
 #endif
         }
 
