@@ -138,6 +138,7 @@ static int mix_frames(AVFilterContext *ctx, void *arg, int jobnr, int nb_jobs)
     ThreadData *td = arg;
     AVFrame **in = td->in;
     AVFrame *out = td->out;
+    const float *weights = s->weights;
     int i, p, x, y;
 
     if (s->depth <= 8) {
@@ -148,15 +149,15 @@ static int mix_frames(AVFilterContext *ctx, void *arg, int jobnr, int nb_jobs)
 
             for (y = slice_start; y < slice_end; y++) {
                 for (x = 0; x < s->linesize[p]; x++) {
-                    int val = 0;
+                    float val = 0.f;
 
                     for (i = 0; i < s->nb_inputs; i++) {
                         uint8_t src = in[i]->data[p][y * in[i]->linesize[p] + x];
 
-                        val += src * s->weights[i];
+                        val += src * weights[i];
                     }
 
-                    dst[x] = av_clip_uint8(val * s->wfactor);
+                    dst[x] = av_clip_uint8(lrintf(val * s->wfactor));
                 }
 
                 dst += out->linesize[p];
@@ -170,15 +171,15 @@ static int mix_frames(AVFilterContext *ctx, void *arg, int jobnr, int nb_jobs)
 
             for (y = slice_start; y < slice_end; y++) {
                 for (x = 0; x < s->linesize[p] / 2; x++) {
-                    int val = 0;
+                    float val = 0.f;
 
                     for (i = 0; i < s->nb_inputs; i++) {
                         uint16_t src = AV_RN16(in[i]->data[p] + y * in[i]->linesize[p] + x * 2);
 
-                        val += src * s->weights[i];
+                        val += src * weights[i];
                     }
 
-                    dst[x] = av_clip(val * s->wfactor, 0, s->max);
+                    dst[x] = av_clip(lrintf(val * s->wfactor), 0, s->max);
                 }
 
                 dst += out->linesize[p] / 2;
@@ -409,7 +410,7 @@ static int tmix_filter_frame(AVFilterLink *inlink, AVFrame *in)
 }
 
 static const AVOption tmix_options[] = {
-    { "frames", "set number of successive frames to mix", OFFSET(nb_inputs), AV_OPT_TYPE_INT, {.i64=3}, 1, 128, .flags = FLAGS },
+    { "frames", "set number of successive frames to mix", OFFSET(nb_inputs), AV_OPT_TYPE_INT, {.i64=3}, 1, 1024, .flags = FLAGS },
     { "weights", "set weight for each frame", OFFSET(weights_str), AV_OPT_TYPE_STRING, {.str="1 1 1"}, 0, 0, .flags = TFLAGS },
     { "scale", "set scale", OFFSET(scale), AV_OPT_TYPE_FLOAT, {.dbl=0}, 0, INT16_MAX, .flags = TFLAGS },
     { NULL },
