@@ -279,6 +279,7 @@ static int config_video_output(AVFilterLink *outlink)
     int i, x, y;
     uint8_t *p;
     AVFilterContext *ctx = outlink->src;
+    AVFilterLink *inlink = ctx->inputs[0];
     EBUR128Context *ebur128 = ctx->priv;
     AVFrame *outpicref;
 
@@ -291,6 +292,8 @@ static int config_video_output(AVFilterLink *outlink)
     outlink->w = ebur128->w;
     outlink->h = ebur128->h;
     outlink->sample_aspect_ratio = (AVRational){1,1};
+    outlink->time_base = inlink->time_base;
+    outlink->frame_rate = av_make_q(10, 1);
 
 #define PAD 8
 
@@ -866,12 +869,17 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *insamples)
 
 #define SET_META_PEAK(name, ptype) do {                                     \
     if (ebur128->peak_mode & PEAK_MODE_ ## ptype ## _PEAKS) {               \
+        double max_peak = 0.0;                                              \
         char key[64];                                                       \
         for (ch = 0; ch < nb_channels; ch++) {                              \
             snprintf(key, sizeof(key),                                      \
                      META_PREFIX AV_STRINGIFY(name) "_peaks_ch%d", ch);     \
+            max_peak = fmax(max_peak, ebur128->name##_peaks[ch]);           \
             SET_META(key, ebur128->name##_peaks[ch]);                       \
         }                                                                   \
+        snprintf(key, sizeof(key),                                          \
+                 META_PREFIX AV_STRINGIFY(name) "_peak");                   \
+        SET_META(key, max_peak);                                            \
     }                                                                       \
 } while (0)
 
