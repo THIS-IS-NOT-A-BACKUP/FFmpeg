@@ -4392,6 +4392,13 @@ This option is mostly useful if digital noise is not wanted to be amplified.
 
 @item channels, h
 Specify which channels to filter, by default all available channels are filtered.
+
+@item overlap, o
+Specify overlap for frames. If set to 0 (default) no frame overlapping is done.
+Using >0 and <1 values will make less conservative gain adjustments, like
+when framelen option is set to smaller value, if framelen option value is
+compensated for non-zero overlap then gain adjustments will be smoother across time
+compared to zero overlap case.
 @end table
 
 @subsection Commands
@@ -21571,6 +21578,23 @@ between 3 and 23. The default value is 5.
 
 @item chroma_amount, ca
 Set the chroma effect strength. It must be a floating point number, reasonable
+values lay between -1.5 and 1.5.
+
+Negative values will blur the input video, while positive values will
+sharpen it, a value of zero will disable the effect.
+
+Default value is 0.0.
+
+@item alpha_msize_x, ax
+Set the alpha matrix horizontal size. It must be an odd integer
+between 3 and 23. The default value is 5.
+
+@item alpha_msize_y, ay
+Set the alpha matrix vertical size. It must be an odd integer
+between 3 and 23. The default value is 5.
+
+@item alpha_amount, aa
+Set the alpha effect strength. It must be a floating point number, reasonable
 values lay between -1.5 and 1.5.
 
 Negative values will blur the input video, while positive values will
