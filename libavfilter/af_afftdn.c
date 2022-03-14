@@ -113,6 +113,7 @@ typedef struct AudioFFTDeNoiseContext {
     int     output_mode;
     int     noise_floor_link;
     float   ratio;
+    float   band_multiplier;
 
     float   last_residual_floor;
     float   last_noise_floor;
@@ -200,6 +201,8 @@ static const AVOption afftdn_options[] = {
     {  "min",     "min",                  0,                       AV_OPT_TYPE_CONST,  {.i64 = MIN_LINK},      0,  0, AFR, "link" },
     {  "max",     "max",                  0,                       AV_OPT_TYPE_CONST,  {.i64 = MAX_LINK},      0,  0, AFR, "link" },
     {  "average", "average",              0,                       AV_OPT_TYPE_CONST,  {.i64 = AVERAGE_LINK},  0,  0, AFR, "link" },
+    { "band_multiplier", "set band multiplier",OFFSET(band_multiplier), AV_OPT_TYPE_FLOAT,{.dbl = 1.25},       0.2,5, AF  },
+    { "bm",       "set band multiplier",       OFFSET(band_multiplier), AV_OPT_TYPE_FLOAT,{.dbl = 1.25},       0.2,5, AF  },
     { NULL }
 };
 
@@ -329,13 +332,15 @@ static double limit_gain(double a, double b)
     return 1.0;
 }
 
-static void process_frame(AudioFFTDeNoiseContext *s, DeNoiseChannel *dnch,
+static void process_frame(AVFilterContext *ctx,
+                          AudioFFTDeNoiseContext *s, DeNoiseChannel *dnch,
                           AVComplexFloat *fft_data,
                           double *prior, double *prior_band_excit, int track_noise)
 {
+    AVFilterLink *outlink = ctx->outputs[0];
     const double sample_floor = s->sample_floor;
     const double *abs_var = dnch->abs_var;
-    const double ratio = s->ratio;
+    const double ratio = outlink->frame_count_out ? s->ratio : 1.0;
     const double rratio = 1. - ratio;
     const int *bin2band = s->bin2band;
     double *band_excit = dnch->band_excit;
@@ -465,7 +470,7 @@ static void process_frame(AudioFFTDeNoiseContext *s, DeNoiseChannel *dnch,
     for (int i = 0; i < s->bin_count; i++)
         dnch->amt[i] = band_amt[bin2band[i]];
 
-    for (int i = 0; i <= s->fft_length2; i++) {
+    for (int i = 0; i < s->bin_count; i++) {
         if (dnch->amt[i] > abs_var[i]) {
             gain[i] = 1.0;
         } else if (dnch->amt[i] > dnch->min_abs_var[i]) {
@@ -521,7 +526,7 @@ static void set_band_parameters(AudioFFTDeNoiseContext *s,
 
     d5 = 0.0;
     band_noise = process_get_band_noise(s, dnch, 0);
-    for (int m = j; m <= s->fft_length2; m++) {
+    for (int m = j; m < s->bin_count; m++) {
         if (m == j) {
             i = j;
             d5 = band_noise;
@@ -610,7 +615,7 @@ static void set_parameters(AudioFFTDeNoiseContext *s, DeNoiseChannel *dnch, int 
     if (update_var) {
         set_band_parameters(s, dnch);
 
-        for (int i = 0; i <= s->fft_length2; i++) {
+        for (int i = 0; i < s->bin_count; i++) {
             dnch->abs_var[i] = fmax(dnch->max_var * dnch->rel_var[i], 1.0);
             dnch->min_abs_var[i] = dnch->gain_scale * dnch->abs_var[i];
         }
@@ -688,8 +693,8 @@ static int config_input(AVFilterLink *inlink)
     if (!s->window || !s->bin2band)
         return AVERROR(ENOMEM);
 
-    sdiv = s->sample_rate / 17640.0;
-    for (i = 0; i <= s->fft_length2; i++)
+    sdiv = s->band_multiplier;
+    for (i = 0; i < s->bin_count; i++)
         s->bin2band[i] = lrint(sdiv * freq2bark((0.5 * i * s->sample_rate) / s->fft_length2));
 
     s->number_of_bands = s->bin2band[s->fft_length2] + 1;
@@ -784,7 +789,6 @@ static int config_input(AVFilterLink *inlink)
     for (int ch = 0; ch < inlink->channels; ch++) {
         DeNoiseChannel *dnch = &s->dnch[ch];
         double *prior_band_excit = dnch->prior_band_excit;
-        double *prior = dnch->prior;
         double min, max;
         double p1, p2;
 
@@ -808,7 +812,7 @@ static int config_input(AVFilterLink *inlink)
             prior_band_excit[m] = 0.0;
         }
 
-        for (m = 0; m <= s->fft_length2; m++)
+        for (m = 0; m < s->bin_count; m++)
             dnch->band_excit[s->bin2band[m]] += 1.0;
 
         j = 0;
@@ -828,8 +832,6 @@ static int config_input(AVFilterLink *inlink)
             dnch->band_excit[i] = av_clipd(dnch->band_excit[i], min, max);
         }
 
-        for (int i = 0; i <= s->fft_length2; i++)
-            prior[i] = 1.0 - s->ratio;
         for (int i = 0; i < s->buffer_length; i++)
             dnch->out_samples[i] = 0;
 
@@ -841,7 +843,7 @@ static int config_input(AVFilterLink *inlink)
 
     j = 0;
     sar = s->sample_advance / s->sample_rate;
-    for (int i = 0; i <= s->fft_length2; i++) {
+    for (int i = 0; i < s->bin_count; i++) {
         if ((i == s->fft_length2) || (s->bin2band[i] > j)) {
             double d6 = (i - 1) * s->sample_rate / s->fft_length;
             double d7 = fmin(0.008 + 2.2 / d6, 0.03);
@@ -1067,7 +1069,7 @@ static int filter_channel(AVFilterContext *ctx, void *arg, int jobnr, int nb_job
 
         dnch->tx_fn(dnch->fft, dnch->fft_out, fft_in, sizeof(float));
 
-        process_frame(s, dnch, dnch->fft_out,
+        process_frame(ctx, s, dnch, dnch->fft_out,
                       dnch->prior,
                       dnch->prior_band_excit,
                       s->track_noise);
