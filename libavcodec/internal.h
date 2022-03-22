@@ -35,16 +35,12 @@
 #include "bsf.h"
 #include "config.h"
 
-#define FF_DEFAULT_QUANT_BIAS 999999
-
 #define FF_QSCALE_TYPE_MPEG1 0
 #define FF_QSCALE_TYPE_MPEG2 1
 #define FF_QSCALE_TYPE_H264  2
 #define FF_QSCALE_TYPE_VP56  3
 
 #define FF_SANE_NB_CHANNELS 512U
-
-#define FF_SIGNBIT(x) ((x) >> CHAR_BIT * sizeof(x) - 1)
 
 #if HAVE_SIMD_ALIGN_64
 #   define STRIDE_ALIGN 64 /* AVX-512 */
@@ -158,8 +154,6 @@ typedef struct AVCodecInternal {
 #endif
     AVChannelLayout initial_ch_layout;
 } AVCodecInternal;
-
-extern const uint8_t ff_log2_run[41];
 
 /**
  * Return the index into tab at which {a,b} match elements {[0],[1]} of tab.
