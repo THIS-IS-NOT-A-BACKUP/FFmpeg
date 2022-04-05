@@ -1247,9 +1247,11 @@ static inline void cx_pktcpy(struct FrameListData *dst,
 static int storeframe(AVCodecContext *avctx, struct FrameListData *cx_frame,
                       AVPacket *pkt)
 {
+    VPxContext *ctx = avctx->priv_data;
     int ret = ff_get_encode_buffer(avctx, pkt, cx_frame->sz, 0);
     uint8_t *side_data;
     int pict_type;
+    int quality;
 
     if (ret < 0)
         return ret;
@@ -1264,7 +1266,10 @@ static int storeframe(AVCodecContext *avctx, struct FrameListData *cx_frame,
         pict_type = AV_PICTURE_TYPE_P;
     }
 
-    ff_side_data_set_encoder_stats(pkt, 0, cx_frame->sse + 1,
+    ret = vpx_codec_control(&ctx->encoder, VP8E_GET_LAST_QUANTIZER_64, &quality);
+    if (ret != VPX_CODEC_OK)
+        quality = 0;
+    ff_side_data_set_encoder_stats(pkt, quality * FF_QP2LAMBDA, cx_frame->sse + 1,
                                    cx_frame->have_sse ? 3 : 0, pict_type);
 
     if (cx_frame->have_sse) {
@@ -1285,7 +1290,6 @@ static int storeframe(AVCodecContext *avctx, struct FrameListData *cx_frame,
         memcpy(side_data + 8, cx_frame->buf_alpha, cx_frame->sz_alpha);
     }
     if (cx_frame->frame_number != -1) {
-        VPxContext *ctx = avctx->priv_data;
         if (ctx->hdr10_plus_fifo) {
             int err = copy_hdr10_plus_to_pkt(ctx->hdr10_plus_fifo, pkt);
             if (err < 0)
