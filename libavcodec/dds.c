@@ -606,12 +606,11 @@ static void run_postproc(AVCodecContext *avctx, AVFrame *frame)
     }
 }
 
-static int dds_decode(AVCodecContext *avctx, void *data,
+static int dds_decode(AVCodecContext *avctx, AVFrame *frame,
                       int *got_frame, AVPacket *avpkt)
 {
     DDSContext *ctx = avctx->priv_data;
     GetByteContext *gbc = &ctx->gbc;
-    AVFrame *frame = data;
     int mipmap;
     int ret;
     int width, height;
@@ -754,7 +753,7 @@ const FFCodec ff_dds_decoder = {
     .p.long_name    = NULL_IF_CONFIG_SMALL("DirectDraw Surface image decoder"),
     .p.type         = AVMEDIA_TYPE_VIDEO,
     .p.id           = AV_CODEC_ID_DDS,
-    .decode         = dds_decode,
+    FF_CODEC_DECODE_CB(dds_decode),
     .priv_data_size = sizeof(DDSContext),
     .p.capabilities = AV_CODEC_CAP_DR1 | AV_CODEC_CAP_SLICE_THREADS,
     .caps_internal  = FF_CODEC_CAP_INIT_THREADSAFE
