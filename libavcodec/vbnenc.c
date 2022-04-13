@@ -37,7 +37,6 @@
 typedef struct VBNContext {
     AVClass *class;
     TextureDSPContext dxtc;
-    PutByteContext pb;
     int format;
     TextureDSPThreadContext enc;
 } VBNContext;
@@ -46,7 +45,7 @@ static int vbn_encode(AVCodecContext *avctx, AVPacket *pkt,
                       const AVFrame *frame, int *got_packet)
 {
     VBNContext *ctx = avctx->priv_data;
-    PutByteContext *pb = &ctx->pb;
+    PutByteContext pb0, *const pb = &pb0;
     int ret;
     ptrdiff_t linesize;
     int64_t pkt_size;
@@ -98,18 +97,18 @@ static int vbn_encode(AVCodecContext *avctx, AVPacket *pkt,
 
     memset(pkt->data, 0, VBN_HEADER_SIZE);
     bytestream2_init_writer(pb, pkt->data, pkt_size);
-    bytestream2_put_le32(pb, VBN_MAGIC);
-    bytestream2_put_le32(pb, VBN_MAJOR);
-    bytestream2_put_le32(pb, VBN_MINOR);
-    bytestream2_put_le32(pb, frame->width);
-    bytestream2_put_le32(pb, frame->height);
-    bytestream2_put_le32(pb, frame->format == AV_PIX_FMT_RGBA ? 4 : 3);
-    bytestream2_put_le32(pb, ctx->format);
-    bytestream2_put_le32(pb, frame->format == AV_PIX_FMT_RGBA ? VBN_PIX_RGBA : VBN_PIX_RGB);
-    bytestream2_put_le32(pb, 0); // mipmaps
-    bytestream2_put_le32(pb, pkt_size - VBN_HEADER_SIZE);
+    bytestream2_put_le32u(pb, VBN_MAGIC);
+    bytestream2_put_le32u(pb, VBN_MAJOR);
+    bytestream2_put_le32u(pb, VBN_MINOR);
+    bytestream2_put_le32u(pb, frame->width);
+    bytestream2_put_le32u(pb, frame->height);
+    bytestream2_put_le32u(pb, frame->format == AV_PIX_FMT_RGBA ? 4 : 3);
+    bytestream2_put_le32u(pb, ctx->format);
+    bytestream2_put_le32u(pb, frame->format == AV_PIX_FMT_RGBA ? VBN_PIX_RGBA : VBN_PIX_RGB);
+    bytestream2_put_le32u(pb, 0); // mipmaps
+    bytestream2_put_le32u(pb, pkt_size - VBN_HEADER_SIZE);
     bytestream2_seek_p(pb, 64, SEEK_SET);
-    bytestream2_put_le32(pb, pkt_size - VBN_HEADER_SIZE);
+    bytestream2_put_le32u(pb, pkt_size - VBN_HEADER_SIZE);
 
     if (ctx->format == VBN_FORMAT_DXT1 || ctx->format == VBN_FORMAT_DXT5) {
         ctx->enc.frame_data.in = (frame->height - 1) * frame->linesize[0] + frame->data[0];
@@ -129,11 +128,6 @@ static av_cold int vbn_init(AVCodecContext *avctx)
 {
     VBNContext *ctx = avctx->priv_data;
     ff_texturedspenc_init(&ctx->dxtc);
-    return 0;
-}
-
-static av_cold int vbn_close(AVCodecContext *avctx)
-{
     return 0;
 }
 
@@ -159,11 +153,10 @@ const FFCodec ff_vbn_encoder = {
     .p.long_name    = NULL_IF_CONFIG_SMALL("Vizrt Binary Image"),
     .p.type         = AVMEDIA_TYPE_VIDEO,
     .p.id           = AV_CODEC_ID_VBN,
-    .p.capabilities = AV_CODEC_CAP_SLICE_THREADS,
+    .p.capabilities = AV_CODEC_CAP_DR1 | AV_CODEC_CAP_SLICE_THREADS,
     .p.priv_class   = &vbnenc_class,
     .init           = vbn_init,
     FF_CODEC_ENCODE_CB(vbn_encode),
-    .close          = vbn_close,
     .priv_data_size = sizeof(VBNContext),
     .p.pix_fmts     = (const enum AVPixelFormat[]) {
         AV_PIX_FMT_RGBA, AV_PIX_FMT_RGB24, AV_PIX_FMT_NONE,

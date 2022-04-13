@@ -34,7 +34,6 @@
 typedef struct VBNContext {
     TextureDSPContext texdsp;
     TextureDSPThreadContext dec;
-    GetByteContext gb;
 } VBNContext;
 
 static av_cold int vbn_init(AVCodecContext *avctx)
@@ -44,11 +43,9 @@ static av_cold int vbn_init(AVCodecContext *avctx)
     return 0;
 }
 
-static int decompress(AVCodecContext *avctx, int compression, uint8_t **outbuf)
+static int decompress(AVCodecContext *avctx, GetByteContext *gb,
+                      int compression, uint8_t **outbuf)
 {
-    VBNContext *ctx = avctx->priv_data;
-    GetByteContext *gb = &ctx->gb;
-
     if (compression == VBN_COMPRESSION_NONE) // outbuf is left NULL because gb->buf can be used directly
         return bytestream2_get_bytes_left(gb);
 
@@ -61,7 +58,7 @@ static int vbn_decode_frame(AVCodecContext *avctx,
                             AVPacket *avpkt)
 {
     VBNContext *ctx    = avctx->priv_data;
-    GetByteContext *gb = &ctx->gb;
+    GetByteContext gb0, *const gb = &gb0;
     uint8_t *image_buf = NULL;
     int      image_len;
     int width, height, components, format, compression, pix_fmt, linesize, data_size;
@@ -74,20 +71,20 @@ static int vbn_decode_frame(AVCodecContext *avctx,
         return AVERROR_INVALIDDATA;
     }
 
-    if (bytestream2_get_le32(gb) != VBN_MAGIC ||
-        bytestream2_get_le32(gb) != VBN_MAJOR ||
-        bytestream2_get_le32(gb) != VBN_MINOR) {
+    if (bytestream2_get_le32u(gb) != VBN_MAGIC ||
+        bytestream2_get_le32u(gb) != VBN_MAJOR ||
+        bytestream2_get_le32u(gb) != VBN_MINOR) {
         av_log(avctx, AV_LOG_ERROR, "Invalid VBN header\n");
         return AVERROR_INVALIDDATA;
     }
 
-    width       = bytestream2_get_le32(gb);
-    height      = bytestream2_get_le32(gb);
-    components  = bytestream2_get_le32(gb);
-    format      = bytestream2_get_le32(gb);
-    pix_fmt     = bytestream2_get_le32(gb);
-    bytestream2_get_le32(gb); // mipmaps
-    data_size   = bytestream2_get_le32(gb);
+    width       = bytestream2_get_le32u(gb);
+    height      = bytestream2_get_le32u(gb);
+    components  = bytestream2_get_le32u(gb);
+    format      = bytestream2_get_le32u(gb);
+    pix_fmt     = bytestream2_get_le32u(gb);
+    bytestream2_get_le32u(gb); // mipmaps
+    data_size   = bytestream2_get_le32u(gb);
     bytestream2_seek(gb, VBN_HEADER_SIZE, SEEK_SET);
 
     compression = format & 0xffffff00;
@@ -139,7 +136,7 @@ static int vbn_decode_frame(AVCodecContext *avctx,
         return AVERROR_PATCHWELCOME;
     }
 
-    image_len = decompress(avctx, compression, &image_buf);
+    image_len = decompress(avctx, gb, compression, &image_buf);
     if (image_len < 0)
         return image_len;
 
@@ -176,11 +173,6 @@ out:
     return ret;
 }
 
-static av_cold int vbn_close(AVCodecContext *avctx)
-{
-    return 0;
-}
-
 const FFCodec ff_vbn_decoder = {
     .p.name         = "vbn",
     .p.long_name    = NULL_IF_CONFIG_SMALL("Vizrt Binary Image"),
@@ -188,7 +180,6 @@ const FFCodec ff_vbn_decoder = {
     .p.id           = AV_CODEC_ID_VBN,
     .init           = vbn_init,
     FF_CODEC_DECODE_CB(vbn_decode_frame),
-    .close          = vbn_close,
     .priv_data_size = sizeof(VBNContext),
     .p.capabilities = AV_CODEC_CAP_DR1 | AV_CODEC_CAP_SLICE_THREADS,
     .caps_internal  = FF_CODEC_CAP_INIT_THREADSAFE
