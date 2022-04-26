@@ -62,6 +62,10 @@ typedef struct ColorMapContext {
     float (*kernel)(const float *x, const float *y);
 
     FFFrameSync fs;
+
+    double A[(MAX_SIZE + 4) * (MAX_SIZE + 4)];
+    double b[MAX_SIZE + 4];
+    int pivot[MAX_SIZE + 4];
 } ColorMapContext;
 
 #define OFFSET(x) offsetof(ColorMapContext, x)
@@ -69,7 +73,7 @@ typedef struct ColorMapContext {
 
 static const AVOption colormap_options[] = {
     { "patch_size", "set patch size", OFFSET(w), AV_OPT_TYPE_IMAGE_SIZE, {.str = "64x64"}, 0, 0, FLAGS },
-    { "nb_patches", "set number of patches", OFFSET(size), AV_OPT_TYPE_INT, {.i64 = 8}, 1, MAX_SIZE, FLAGS },
+    { "nb_patches", "set number of patches", OFFSET(size), AV_OPT_TYPE_INT, {.i64 = 0}, 0, MAX_SIZE, FLAGS },
     { "type", "set the target type used",  OFFSET(target_type), AV_OPT_TYPE_INT, {.i64=1}, 0, 1, FLAGS, "type" },
     {   "relative", "the target colors are relative", 0, AV_OPT_TYPE_CONST, {.i64=0}, 0, 1, FLAGS, "type" },
     {   "absolute", "the target colors are absolute", 0, AV_OPT_TYPE_CONST, {.i64=1}, 0, 1, FLAGS, "type" },
@@ -262,12 +266,9 @@ static void build_map(AVFilterContext *ctx)
             {
                 const int N = s->nb_maps;
                 const int N4 = N + 4;
-                double *A = av_calloc(sizeof(*A), N4 * N4);
-                double *b = av_calloc(sizeof(*b), N4);
-                int *pivot = NULL;
-
-                if (!A || !b)
-                    goto error;
+                double *A = s->A;
+                double *b = s->b;
+                int *pivot = s->pivot;
 
                 for (int j = 0; j < N; j++)
                     for (int i = j; i < N; i++)
@@ -286,10 +287,6 @@ static void build_map(AVFilterContext *ctx)
                     for (int i = N;i < N4; i++)
                         A[j * N4 + i] = 0.;
 
-                pivot = av_calloc(N4, sizeof(*pivot));
-                if (!pivot)
-                    goto error;
-
                 if (gauss_make_triangular(A, pivot, N4)) {
                     for (int i = 0; i < N; i++)
                         b[i] = s->target[i][c];
@@ -304,10 +301,6 @@ static void build_map(AVFilterContext *ctx)
                     for (int i = 0; i < 4; i++)
                         s->icoeff[i][c] = b[N + i];
                 }
-error:
-                av_free(pivot);
-                av_free(b);
-                av_free(A);
             }
         }
     }
@@ -428,6 +421,8 @@ static int import_map(AVFilterLink *inlink, AVFrame *in)
 
     if (changed)
         s->changed[is_target] = 1;
+    if (!s->size)
+        s->size = FFMIN(idx, MAX_SIZE);
     if (!is_target)
         s->nb_maps = FFMIN(idx, s->size);
 
