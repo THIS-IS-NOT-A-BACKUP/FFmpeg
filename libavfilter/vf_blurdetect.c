@@ -131,8 +131,6 @@ static float edge_width(BLRContext *blr, int i, int j, int8_t dir, int w, int h,
     int p1;
     int p2;
     int k, x, y;
-    int edge1;
-    int edge2;
     int radius = blr->radius;
 
     switch(dir) {
@@ -140,6 +138,7 @@ static float edge_width(BLRContext *blr, int i, int j, int8_t dir, int w, int h,
     case DIRECTION_VERTICAL:   dX = 0; dY =  1; break;
     case DIRECTION_45UP:       dX = 1; dY = -1; break;
     case DIRECTION_45DOWN:     dX = 1; dY =  1; break;
+    default:                   dX = 1; dY =  1; break;
     }
 
     // determines if search in direction dX/dY is looking for a maximum or minimum
@@ -161,7 +160,6 @@ static float edge_width(BLRContext *blr, int i, int j, int8_t dir, int w, int h,
         if (tmp <= 0) // local maximum found
             break;
     }
-    edge1 = k;
     width += k;
 
     // search in +(dX/dY) direction
@@ -180,7 +178,6 @@ static float edge_width(BLRContext *blr, int i, int j, int8_t dir, int w, int h,
         if (tmp >= 0) // local maximum found
             break;
     }
-    edge2 = k;
     width += k;
 
     // for 45 degree directions approximate edge width in pixel units: 0.7 ~= sqrt(2)/2
@@ -231,7 +228,7 @@ static float calculate_blur(BLRContext *s, int w, int h, int hsub, int vsub,
                 }
             }
             // if not enough edge pixels in a block, consider it smooth
-            if (block_total_width >= 2) {
+            if (block_total_width >= 2 && block_count) {
                 blks[blkcnt] = block_total_width / block_count;
                 blkcnt++;
             }
