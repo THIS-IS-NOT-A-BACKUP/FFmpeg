@@ -36,11 +36,9 @@
 #include "libavutil/intreadwrite.h"
 #include "libavutil/intfloat.h"
 #include "libavutil/mathematics.h"
-#include "libavutil/time_internal.h"
 #include "libavutil/avassert.h"
 #include "libavutil/avstring.h"
 #include "libavutil/dict.h"
-#include "libavutil/display.h"
 #include "libavutil/opt.h"
 #include "libavutil/aes.h"
 #include "libavutil/aes_ctr.h"
@@ -49,7 +47,6 @@
 #include "libavutil/spherical.h"
 #include "libavutil/stereo3d.h"
 #include "libavutil/timecode.h"
-#include "libavutil/dovi_meta.h"
 #include "libavcodec/ac3tab.h"
 #include "libavcodec/flac.h"
 #include "libavcodec/hevc.h"
@@ -58,6 +55,7 @@
 #include "avformat.h"
 #include "internal.h"
 #include "avio_internal.h"
+#include "demux.h"
 #include "dovi_isom.h"
 #include "riff.h"
 #include "isom.h"
@@ -8034,12 +8032,13 @@ static int mov_read_timecode_track(AVFormatContext *s, AVStream *st)
     int64_t cur_pos = avio_tell(sc->pb);
     int64_t value;
     AVRational tc_rate = st->avg_frame_rate;
+    int tmcd_nb_frames = sc->tmcd_nb_frames;
     int rounded_tc_rate;
 
     if (!sti->nb_index_entries)
         return -1;
 
-    if (!tc_rate.num || !tc_rate.den || !sc->tmcd_nb_frames)
+    if (!tc_rate.num || !tc_rate.den || !tmcd_nb_frames)
         return -1;
 
     avio_seek(sc->pb, sti->index_entries->pos, SEEK_SET);
@@ -8056,9 +8055,15 @@ static int mov_read_timecode_track(AVFormatContext *s, AVStream *st)
      * format). */
 
     /* 60 fps content have tmcd_nb_frames set to 30 but tc_rate set to 60, so
-     * we multiply the frame number with the quotient. */
+     * we multiply the frame number with the quotient.
+     * See tickets #9492, #9710. */
     rounded_tc_rate = (tc_rate.num + tc_rate.den / 2) / tc_rate.den;
-    value = av_rescale(value, rounded_tc_rate, sc->tmcd_nb_frames);
+    /* Work around files where tmcd_nb_frames is rounded down from frame rate
+     * instead of up. See ticket #5978. */
+    if (tmcd_nb_frames == tc_rate.num / tc_rate.den &&
+        s->strict_std_compliance < FF_COMPLIANCE_STRICT)
+        tmcd_nb_frames = rounded_tc_rate;
+    value = av_rescale(value, rounded_tc_rate, tmcd_nb_frames);
 
     parse_timecode_in_framenum_format(s, st, value, flags);
 
