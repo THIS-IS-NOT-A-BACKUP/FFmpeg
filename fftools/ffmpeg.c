@@ -1118,7 +1118,7 @@ static void do_subtitle_out(OutputFile *of,
             exit_program(1);
         }
 
-        pkt->size = subtitle_out_size;
+        av_shrink_packet(pkt, subtitle_out_size);
         pkt->pts  = av_rescale_q(sub->pts, AV_TIME_BASE_Q, ost->mux_timebase);
         pkt->duration = av_rescale_q(sub->end_display_time, (AVRational){ 1, 1000 }, ost->mux_timebase);
         if (enc->codec_id == AV_CODEC_ID_DVB_SUBTITLE) {
@@ -1216,18 +1216,18 @@ static void do_video_out(OutputFile *of,
                 if (delta0 > 1.1)
                     nb0_frames = llrintf(delta0 - 0.6);
             }
-            next_picture->pkt_duration = 1;
+            next_picture->duration = 1;
             break;
         case VSYNC_VFR:
             if (delta <= -0.6)
                 nb_frames = 0;
             else if (delta > 0.6)
                 ost->sync_opts = llrint(sync_ipts);
-            next_picture->pkt_duration = duration;
+            next_picture->duration = duration;
             break;
         case VSYNC_DROP:
         case VSYNC_PASSTHROUGH:
-            next_picture->pkt_duration = duration;
+            next_picture->duration = duration;
             ost->sync_opts = llrint(sync_ipts);
             break;
         default:
