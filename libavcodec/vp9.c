@@ -1870,7 +1870,7 @@ static int vp9_decode_update_thread_context(AVCodecContext *dst, const AVCodecCo
 
 const FFCodec ff_vp9_decoder = {
     .p.name                = "vp9",
-    .p.long_name           = NULL_IF_CONFIG_SMALL("Google VP9"),
+    CODEC_LONG_NAME("Google VP9"),
     .p.type                = AVMEDIA_TYPE_VIDEO,
     .p.id                  = AV_CODEC_ID_VP9,
     .priv_data_size        = sizeof(VP9Context),
@@ -1882,7 +1882,7 @@ const FFCodec ff_vp9_decoder = {
                              FF_CODEC_CAP_SLICE_THREAD_HAS_MF |
                              FF_CODEC_CAP_ALLOCATE_PROGRESS,
     .flush                 = vp9_decode_flush,
-    .update_thread_context = ONLY_IF_THREADS_ENABLED(vp9_decode_update_thread_context),
+    UPDATE_THREAD_CONTEXT(vp9_decode_update_thread_context),
     .p.profiles            = NULL_IF_CONFIG_SMALL(ff_vp9_profiles),
     .bsfs                  = "vp9_superframe_split",
     .hw_configs            = (const AVCodecHWConfigInternal *const []) {

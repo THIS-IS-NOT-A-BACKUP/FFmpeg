@@ -3845,7 +3845,7 @@ static const AVClass hevc_decoder_class = {
 
 const FFCodec ff_hevc_decoder = {
     .p.name                = "hevc",
-    .p.long_name           = NULL_IF_CONFIG_SMALL("HEVC (High Efficiency Video Coding)"),
+    CODEC_LONG_NAME("HEVC (High Efficiency Video Coding)"),
     .p.type                = AVMEDIA_TYPE_VIDEO,
     .p.id                  = AV_CODEC_ID_HEVC,
     .priv_data_size        = sizeof(HEVCContext),
@@ -3854,7 +3854,7 @@ const FFCodec ff_hevc_decoder = {
     .close                 = hevc_decode_free,
     FF_CODEC_DECODE_CB(hevc_decode_frame),
     .flush                 = hevc_decode_flush,
-    .update_thread_context = ONLY_IF_THREADS_ENABLED(hevc_update_thread_context),
+    UPDATE_THREAD_CONTEXT(hevc_update_thread_context),
     .p.capabilities        = AV_CODEC_CAP_DR1 | AV_CODEC_CAP_DELAY |
                              AV_CODEC_CAP_SLICE_THREADS | AV_CODEC_CAP_FRAME_THREADS,
     .caps_internal         = FF_CODEC_CAP_EXPORTS_CROPPING |
