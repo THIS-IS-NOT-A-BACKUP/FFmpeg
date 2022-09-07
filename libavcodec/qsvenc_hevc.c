@@ -236,6 +236,7 @@ static const AVOption options[] = {
     QSV_OPTION_ADAPTIVE_I
     QSV_OPTION_ADAPTIVE_B
     QSV_OPTION_SCENARIO
+    QSV_OPTION_AVBR
 
     { "idr_interval", "Distance (in I-frames) between IDR frames", OFFSET(qsv.idr_interval), AV_OPT_TYPE_INT, { .i64 = 0 }, -1, INT_MAX, VE, "idr_interval" },
     { "begin_only", "Output an IDR-frame only at the beginning of the stream", 0, AV_OPT_TYPE_CONST, { .i64 = -1 }, 0, 0, VE, "idr_interval" },
@@ -314,6 +315,7 @@ const FFCodec ff_hevc_qsv_encoder = {
                                                     AV_PIX_FMT_QSV,
                                                     AV_PIX_FMT_BGRA,
                                                     AV_PIX_FMT_X2RGB10,
+                                                    AV_PIX_FMT_VUYX,
                                                     AV_PIX_FMT_NONE },
     .p.priv_class   = &class,
     .defaults       = qsv_enc_defaults,
