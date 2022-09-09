@@ -251,6 +251,26 @@ typedef struct QSVEncContext {
     float old_i_quant_offset;
     float old_b_quant_factor;
     float old_b_quant_offset;
+    // This is used for max_frame_size reset
+    int old_max_frame_size;
+    // This is used for gop reset
+    int old_gop_size;
+    // These are used for intra refresh reset
+    int old_int_ref_type;
+    int old_int_ref_cycle_size;
+    int old_int_ref_qp_delta;
+    int old_int_ref_cycle_dist;
+    // These are used for max/min qp reset;
+    int old_qmax;
+    int old_qmin;
+    int old_max_qp_i;
+    int old_min_qp_i;
+    int old_max_qp_p;
+    int old_min_qp_p;
+    int old_max_qp_b;
+    int old_min_qp_b;
+    // This is used for low_delay_brc reset
+    int old_low_delay_brc;
 } QSVEncContext;
 
 int ff_qsv_enc_init(AVCodecContext *avctx, QSVEncContext *q);
