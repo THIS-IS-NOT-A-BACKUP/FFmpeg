@@ -1379,6 +1379,8 @@ cglobal fft_sr_ns_float, 4, 10, 16, 272, ctx, out, in, tmp, len, lut, itab, rtab
 %endmacro
 
 %if ARCH_X86_64
+FFT_SPLIT_RADIX_FN avx, 0
+FFT_SPLIT_RADIX_FN avx, 1
 FFT_SPLIT_RADIX_FN fma3, 0
 FFT_SPLIT_RADIX_FN fma3, 1
 %if HAVE_AVX2_EXTERNAL
@@ -1594,7 +1596,7 @@ cglobal fft_pfa_15xM_float, 4, 14, 16, 320, ctx, out, in, stride, len, lut, buf,
     mov btmpq, outq
 
     mov outq, [ctxq + AVTXContext.tmp]
-%if !%2
+%if %2 == 0
     movsxd lenq, dword [ctxq + AVTXContext.len]
     mov lutq, [ctxq + AVTXContext.map]
 %endif
@@ -1611,8 +1613,8 @@ cglobal fft_pfa_15xM_float, 4, 14, 16, 320, ctx, out, in, stride, len, lut, buf,
     movaps m13, [mask_mmmmmmpp]      ; mmmmmmpp
     vpermpd m12, m13, q0033          ; ppppmmmm
     vextractf128 xm11, m13, 1        ; mmpp
-    movaps m10, [ff_tx_tab_53_float] ; tab5
-    movaps xm9, [ff_tx_tab_53_float + 32] ; tab3
+    movaps m10, [tab_53_float]       ; tab5
+    movaps xm9, [tab_53_float + 32]  ; tab3
     movaps m8, [s15_perm]
 
 .dim1:
@@ -1838,12 +1840,12 @@ cglobal fft_pfa_15xM_ns_float, 4, 14, 16, 320, ctx, out, in, stride, len, lut, b
     movsxd lenq, dword [ctxq + AVTXContext.len]
     mov lutq, [ctxq + AVTXContext.map]
 
-    call mangle(fft_pfa_15xM_asm_float)
+    call mangle(ff_tx_fft_pfa_15xM_asm_float)
     RET
 %endif
 %endmacro
 
-%if ARCH_X86_64
+%if ARCH_X86_64 && HAVE_AVX2_EXTERNAL
 PFA_15_FN avx2, 0
 PFA_15_FN avx2, 1
 %endif
