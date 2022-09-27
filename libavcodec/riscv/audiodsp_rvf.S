@@ -1,4 +1,6 @@
 /*
+ * Copyright © 2022 Rémi Denis-Courmont.
+ *
  * This file is part of FFmpeg.
  *
  * FFmpeg is free software; you can redistribute it and/or
@@ -16,24 +18,32 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#ifndef AVCODEC_VORBISDSP_H
-#define AVCODEC_VORBISDSP_H
+#include "libavutil/riscv/asm.S"
 
-#include <stddef.h>
+func ff_vector_clipf_rvf, f
+NOHWF   fmv.w.x fa0, a3
+NOHWF   fmv.w.x fa1, a4
+1:
+        flw     ft0,   (a1)
+        flw     ft1,  4(a1)
+        fmax.s  ft0, ft0, fa0
+        flw     ft2,  8(a1)
+        fmax.s  ft1, ft1, fa0
+        flw     ft3, 12(a1)
+        fmax.s  ft2, ft2, fa0
+        addi    a2, a2, -4
+        fmax.s  ft3, ft3, fa0
+        addi    a1, a1, 16
+        fmin.s  ft0, ft0, fa1
+        fmin.s  ft1, ft1, fa1
+        fsw     ft0,   (a0)
+        fmin.s  ft2, ft2, fa1
+        fsw     ft1,  4(a0)
+        fmin.s  ft3, ft3, fa1
+        fsw     ft2,  8(a0)
+        fsw     ft3, 12(a0)
+        addi    a0, a0, 16
+        bnez    a2, 1b
 
-typedef struct VorbisDSPContext {
-    /* assume len is a multiple of 4, and arrays are 16-byte aligned */
-    void (*vorbis_inverse_coupling)(float *mag, float *ang,
-                                    ptrdiff_t blocksize);
-} VorbisDSPContext;
-
-void ff_vorbisdsp_init(VorbisDSPContext *dsp);
-
-/* for internal use only */
-void ff_vorbisdsp_init_aarch64(VorbisDSPContext *dsp);
-void ff_vorbisdsp_init_x86(VorbisDSPContext *dsp);
-void ff_vorbisdsp_init_arm(VorbisDSPContext *dsp);
-void ff_vorbisdsp_init_ppc(VorbisDSPContext *dsp);
-void ff_vorbisdsp_init_riscv(VorbisDSPContext *dsp);
-
-#endif /* AVCODEC_VORBISDSP_H */
+        ret
+endfunc

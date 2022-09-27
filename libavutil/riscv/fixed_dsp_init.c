@@ -1,4 +1,6 @@
 /*
+ * Copyright © 2022 Rémi Denis-Courmont.
+ *
  * This file is part of FFmpeg.
  *
  * FFmpeg is free software; you can redistribute it and/or
@@ -16,24 +18,21 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#ifndef AVCODEC_VORBISDSP_H
-#define AVCODEC_VORBISDSP_H
+#include <stdint.h>
 
-#include <stddef.h>
+#include "config.h"
+#include "libavutil/attributes.h"
+#include "libavutil/cpu.h"
+#include "libavutil/fixed_dsp.h"
 
-typedef struct VorbisDSPContext {
-    /* assume len is a multiple of 4, and arrays are 16-byte aligned */
-    void (*vorbis_inverse_coupling)(float *mag, float *ang,
-                                    ptrdiff_t blocksize);
-} VorbisDSPContext;
+void ff_butterflies_fixed_rvv(int *v1, int *v2, int len);
 
-void ff_vorbisdsp_init(VorbisDSPContext *dsp);
+av_cold void ff_fixed_dsp_init_riscv(AVFixedDSPContext *fdsp)
+{
+#if HAVE_RVV
+    int flags = av_get_cpu_flags();
 
-/* for internal use only */
-void ff_vorbisdsp_init_aarch64(VorbisDSPContext *dsp);
-void ff_vorbisdsp_init_x86(VorbisDSPContext *dsp);
-void ff_vorbisdsp_init_arm(VorbisDSPContext *dsp);
-void ff_vorbisdsp_init_ppc(VorbisDSPContext *dsp);
-void ff_vorbisdsp_init_riscv(VorbisDSPContext *dsp);
-
-#endif /* AVCODEC_VORBISDSP_H */
+    if (flags & AV_CPU_FLAG_RVV_I32)
+        fdsp->butterflies_fixed = ff_butterflies_fixed_rvv;
+#endif
+}

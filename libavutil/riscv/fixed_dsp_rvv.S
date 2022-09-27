@@ -1,4 +1,6 @@
 /*
+ * Copyright © 2022 Rémi Denis-Courmont.
+ *
  * This file is part of FFmpeg.
  *
  * FFmpeg is free software; you can redistribute it and/or
@@ -16,24 +18,23 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#ifndef AVCODEC_VORBISDSP_H
-#define AVCODEC_VORBISDSP_H
+#include "config.h"
+#include "asm.S"
 
-#include <stddef.h>
+// (a0) = (a0) + (a1), (a1) = (a0) - (a1) [0..a2-1]
+func ff_butterflies_fixed_rvv, zve32x
+1:
+        vsetvli t0, a2, e32, m1, ta, ma
+        vle32.v v16, (a0)
+        sub     a2, a2, t0
+        vle32.v v24, (a1)
+        vadd.vv v0, v16, v24
+        vsub.vv v8, v16, v24
+        vse32.v v0, (a0)
+        sh2add  a0, t0, a0
+        vse32.v v8, (a1)
+        sh2add  a1, t0, a1
+        bnez    a2, 1b
 
-typedef struct VorbisDSPContext {
-    /* assume len is a multiple of 4, and arrays are 16-byte aligned */
-    void (*vorbis_inverse_coupling)(float *mag, float *ang,
-                                    ptrdiff_t blocksize);
-} VorbisDSPContext;
-
-void ff_vorbisdsp_init(VorbisDSPContext *dsp);
-
-/* for internal use only */
-void ff_vorbisdsp_init_aarch64(VorbisDSPContext *dsp);
-void ff_vorbisdsp_init_x86(VorbisDSPContext *dsp);
-void ff_vorbisdsp_init_arm(VorbisDSPContext *dsp);
-void ff_vorbisdsp_init_ppc(VorbisDSPContext *dsp);
-void ff_vorbisdsp_init_riscv(VorbisDSPContext *dsp);
-
-#endif /* AVCODEC_VORBISDSP_H */
+        ret
+endfunc
