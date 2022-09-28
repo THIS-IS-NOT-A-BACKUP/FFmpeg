@@ -18,27 +18,28 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#ifndef AVUTIL_RISCV_CPU_H
+#define AVUTIL_RISCV_CPU_H
+
 #include "config.h"
-#include "libavutil/riscv/asm.S"
+#include <stddef.h>
+#include "libavutil/cpu.h"
 
-func ff_vorbis_inverse_coupling_rvv, zve32f
-        fmv.w.x   ft0, zero
-1:
-        vsetvli   t0, a2, e32, m1, ta, ma
-        vle32.v   v16, (a1)
-        sub       a2, a2, t0
-        vle32.v   v24, (a0)
-        vfmax.vf  v8, v16, ft0
-        vfmin.vf  v16, v16, ft0
-        vfsgnj.vv v8, v8, v24
-        vfsgnj.vv v16, v16, v24
-        vfsub.vv  v8, v24, v8
-        vfsub.vv  v24, v24, v16
-        vse32.v   v8, (a1)
-        sh2add    a1, t0, a1
-        vse32.v   v24, (a0)
-        sh2add    a0, t0, a0
-        bnez      a2, 1b
+#if HAVE_RVV
+/**
+ * Returns the vector size in bytes (always a power of two and at least 4).
+ * This is undefined behaviour if vectors are not implemented.
+ */
+static inline size_t ff_get_rv_vlenb(void)
+{
+    size_t vlenb;
 
-        ret
-endfunc
+    __asm__ (
+        ".option push\n"
+        ".option arch, +v\n"
+        "    csrr %0, vlenb\n"
+        ".option pop\n" : "=r" (vlenb));
+    return vlenb;
+}
+#endif
+#endif
