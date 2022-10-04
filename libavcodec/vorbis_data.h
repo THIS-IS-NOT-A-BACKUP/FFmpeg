@@ -1,7 +1,4 @@
 /*
- * MPEG-1/2 encoder header
- * Copyright (c) 2007 Aurelien Jacobs <aurel@gnuage.org>
- *
  * This file is part of FFmpeg.
  *
  * FFmpeg is free software; you can redistribute it and/or
@@ -19,17 +16,19 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#ifndef AVCODEC_MPEG12ENC_H
-#define AVCODEC_MPEG12ENC_H
+#ifndef AVCODEC_VORBIS_DATA_H
+#define AVCODEC_VORBIS_DATA_H
 
 #include <stdint.h>
 
-#include "mpegvideo.h"
+#include "libavutil/channel_layout.h"
 
-void ff_mpeg1_encode_picture_header(MpegEncContext *s, int picture_number);
-void ff_mpeg1_encode_mb(MpegEncContext *s, int16_t block[8][64],
-                        int motion_x, int motion_y);
-void ff_mpeg1_encode_init(MpegEncContext *s);
-void ff_mpeg1_encode_slice_header(MpegEncContext *s);
+extern const float ff_vorbis_floor1_inverse_db_table[256];
+extern const float * const ff_vorbis_vwin[8];
+extern const uint8_t ff_vorbis_channel_layout_offsets[8][8];
+#if FF_API_OLD_CHANNEL_LAYOUT
+extern const uint64_t ff_vorbis_channel_layouts[9];
+#endif
+extern const AVChannelLayout ff_vorbis_ch_layouts[9];
 
-#endif /* AVCODEC_MPEG12ENC_H */
+#endif /* AVCODEC_VORBIS_DATA_H */

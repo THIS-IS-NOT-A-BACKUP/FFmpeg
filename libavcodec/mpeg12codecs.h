@@ -1,5 +1,5 @@
 /*
- * MPEG-1/2 encoder header
+ * MPEG-1/2 codecs common code
  * Copyright (c) 2007 Aurelien Jacobs <aurel@gnuage.org>
  *
  * This file is part of FFmpeg.
@@ -19,17 +19,11 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#ifndef AVCODEC_MPEG12ENC_H
-#define AVCODEC_MPEG12ENC_H
-
-#include <stdint.h>
+#ifndef AVCODEC_MPEG12CODECS_H
+#define AVCODEC_MPEG12CODECS_H
 
 #include "mpegvideo.h"
 
-void ff_mpeg1_encode_picture_header(MpegEncContext *s, int picture_number);
-void ff_mpeg1_encode_mb(MpegEncContext *s, int16_t block[8][64],
-                        int motion_x, int motion_y);
-void ff_mpeg1_encode_init(MpegEncContext *s);
-void ff_mpeg1_encode_slice_header(MpegEncContext *s);
+void ff_mpeg1_clean_buffers(MpegEncContext *s);
 
-#endif /* AVCODEC_MPEG12ENC_H */
+#endif /* AVCODEC_MPEG12CODECS_H */
