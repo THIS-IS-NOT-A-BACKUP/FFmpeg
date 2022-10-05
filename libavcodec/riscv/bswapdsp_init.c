@@ -1,4 +1,6 @@
 /*
+ * Copyright © 2022 Rémi Denis-Courmont.
+ *
  * This file is part of FFmpeg.
  *
  * FFmpeg is free software; you can redistribute it and/or
@@ -16,20 +18,29 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#ifndef AVCODEC_ALACDSP_H
-#define AVCODEC_ALACDSP_H
-
 #include <stdint.h>
 
-typedef struct ALACDSPContext {
-    void (*decorrelate_stereo)(int32_t *buffer[2], int nb_samples,
-                               int decorr_shift, int decorr_left_weight);
-    void (*append_extra_bits[2])(int32_t *buffer[2], int32_t *extra_bits_buffer[2],
-                                 int extra_bits, int channels, int nb_samples);
-} ALACDSPContext;
+#include "config.h"
+#include "libavutil/attributes.h"
+#include "libavutil/cpu.h"
+#include "libavcodec/bswapdsp.h"
 
-void ff_alacdsp_init(ALACDSPContext *c);
-void ff_alacdsp_init_riscv(ALACDSPContext *c);
-void ff_alacdsp_init_x86(ALACDSPContext *c);
+void ff_bswap32_buf_rvb(uint32_t *dst, const uint32_t *src, int len);
+void ff_bswap32_buf_rvv(uint32_t *dst, const uint32_t *src, int len);
+void ff_bswap16_buf_rvv(uint16_t *dst, const uint16_t *src, int len);
 
-#endif /* AVCODEC_ALACDSP_H */
+av_cold void ff_bswapdsp_init_riscv(BswapDSPContext *c)
+{
+    int cpu_flags = av_get_cpu_flags();
+
+#if (__riscv_xlen >= 64)
+    if (cpu_flags & AV_CPU_FLAG_RVB_BASIC)
+        c->bswap_buf = ff_bswap32_buf_rvb;
+#endif
+#if HAVE_RVV
+    if (cpu_flags & AV_CPU_FLAG_RVV_I32) {
+        c->bswap_buf = ff_bswap32_buf_rvv;
+        c->bswap16_buf = ff_bswap16_buf_rvv;
+    }
+#endif
+}
