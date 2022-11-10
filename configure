@@ -3399,6 +3399,7 @@ libx264_encoder_select="atsc_a53"
 libx264rgb_encoder_deps="libx264"
 libx264rgb_encoder_select="libx264_encoder"
 libx265_encoder_deps="libx265"
+libx265_encoder_select="atsc_a53"
 libxavs_encoder_deps="libxavs"
 libxavs2_encoder_deps="libxavs2"
 libxvid_encoder_deps="libxvid"
@@ -6456,7 +6457,7 @@ fi
 
 if ! disabled ffnvcodec; then
     ffnv_hdr_list="ffnvcodec/nvEncodeAPI.h ffnvcodec/dynlink_cuda.h ffnvcodec/dynlink_cuviddec.h ffnvcodec/dynlink_nvcuvid.h"
-    check_pkg_config ffnvcodec "ffnvcodec >= 12.0.11.0" "$ffnv_hdr_list" "" || \
+    check_pkg_config ffnvcodec "ffnvcodec >= 12.0.16.0" "$ffnv_hdr_list" "" || \
       check_pkg_config ffnvcodec "ffnvcodec >= 11.1.5.2 ffnvcodec < 12.0" "$ffnv_hdr_list" "" || \
       check_pkg_config ffnvcodec "ffnvcodec >= 11.0.10.2 ffnvcodec < 11.1" "$ffnv_hdr_list" "" || \
       check_pkg_config ffnvcodec "ffnvcodec >= 8.1.24.14 ffnvcodec < 8.2" "$ffnv_hdr_list" ""
