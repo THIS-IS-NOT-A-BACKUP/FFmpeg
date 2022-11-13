@@ -116,6 +116,7 @@ static void smc_encode_stream(SMCContext *s, const AVFrame *frame,
     const uint8_t *src_pixels = (const uint8_t *)frame->data[0];
     const int stride = frame->linesize[0];
     const uint8_t *prev_pixels = (const uint8_t *)s->prev_frame->data[0];
+    const int prev_stride = s->prev_frame->linesize[0];
     uint8_t *distinct_values = s->distinct_values;
     const uint8_t *pixel_ptr, *row_ptr;
     const int height = frame->height;
@@ -155,10 +156,10 @@ static void smc_encode_stream(SMCContext *s, const AVFrame *frame,
             int compare = 0;
 
             for (int y = 0; y < y_size; y++) {
-                const ptrdiff_t offset = pixel_ptr - src_pixels;
-                const uint8_t *prev_pixel_ptr = prev_pixels + offset;
+                const ptrdiff_t offset = pixel_ptr - row_ptr;
+                const uint8_t *prev_pixel_ptr = prev_pixels + cur_y * prev_stride + offset;
 
-                compare |= memcmp(prev_pixel_ptr + y * stride, pixel_ptr + y * stride, 4);
+                compare |= memcmp(prev_pixel_ptr + y * prev_stride, pixel_ptr + y * stride, 4);
                 if (compare)
                     break;
             }
@@ -302,11 +303,12 @@ static void smc_encode_stream(SMCContext *s, const AVFrame *frame,
             }
 
             for (int i = 0; i < blocks; i++) {
+                const int y_size = FFMIN(4, height - cur_y);
                 uint8_t value = s->color_pairs[color_table_index][1];
                 uint16_t flags = 0;
                 int shift = 15;
 
-                for (int y = 0; y < 4; y++) {
+                for (int y = 0; y < y_size; y++) {
                     for (int x = 0; x < 4; x++) {
                         flags |= (value == pixel_ptr[x + y * stride]) << shift;
                         shift--;
@@ -350,6 +352,7 @@ static void smc_encode_stream(SMCContext *s, const AVFrame *frame,
             }
 
             for (int i = 0; i < blocks; i++) {
+                const int y_size = FFMIN(4, height - cur_y);
                 uint32_t flags = 0;
                 uint8_t quad[4];
                 int shift = 30;
@@ -357,7 +360,7 @@ static void smc_encode_stream(SMCContext *s, const AVFrame *frame,
                 for (int k = 0; k < 4; k++)
                     quad[k] = s->color_quads[color_table_index][k];
 
-                for (int y = 0; y < 4; y++) {
+                for (int y = 0; y < y_size; y++) {
                     for (int x = 0; x < 4; x++) {
                         int pixel = pixel_ptr[x + y * stride];
                         uint32_t idx = 0;
@@ -417,6 +420,7 @@ static void smc_encode_stream(SMCContext *s, const AVFrame *frame,
             }
 
             for (int i = 0; i < blocks; i++) {
+                const int y_size = FFMIN(4, height - cur_y);
                 uint64_t flags = 0;
                 uint8_t octet[8];
                 int shift = 45;
@@ -424,7 +428,7 @@ static void smc_encode_stream(SMCContext *s, const AVFrame *frame,
                 for (int k = 0; k < 8; k++)
                     octet[k] = s->color_octets[color_table_index][k];
 
-                for (int y = 0; y < 4; y++) {
+                for (int y = 0; y < y_size; y++) {
                     for (int x = 0; x < 4; x++) {
                         int pixel = pixel_ptr[x + y * stride];
                         uint64_t idx = 0;
@@ -451,9 +455,15 @@ static void smc_encode_stream(SMCContext *s, const AVFrame *frame,
         default:
             bytestream2_put_byte(pb, 0xE0 | (blocks - 1));
             for (int i = 0; i < blocks; i++) {
-                for (int y = 0; y < 4; y++) {
+                const int y_size = FFMIN(4, height - cur_y);
+                for (int y = 0; y < y_size; y++) {
                     for (int x = 0; x < 4; x++)
                         bytestream2_put_byte(pb, pixel_ptr[x + y * stride]);
+                }
+
+                for (int y = y_size; y < 4; y++) {
+                    for (int x = 0; x < 4; x++)
+                        bytestream2_put_byte(pb, 0);
                 }
 
                 ADVANCE_BLOCK(pixel_ptr, row_ptr, 1)
