@@ -136,8 +136,7 @@ static unsigned read_uint_max(BonkContext *s, uint32_t max)
     if (max == 0)
         return 0;
 
-    if (max >> 31)
-        return 32;
+    av_assert0(max >> 31 == 0);
 
     for (unsigned i = 1; i <= max - value; i+=i)
         if (get_bits1(&s->gb))
@@ -185,8 +184,7 @@ static int intlist_read(BonkContext *s, int *buf, int entries, int base_2_part)
         } else if (steplet > 0) {
             int actual_run = read_uint_max(s, steplet - 1);
 
-            if (actual_run < 0)
-                break;
+            av_assert0(actual_run >= 0);
 
             if (actual_run > 0) {
                 bits[x  ].bit   = dominant;
@@ -205,8 +203,6 @@ static int intlist_read(BonkContext *s, int *buf, int entries, int base_2_part)
         }
 
         if (step < 256) {
-            if (step == 0)
-                return AVERROR_INVALIDDATA;
             step = 65536 / step;
             dominant = !dominant;
         }
