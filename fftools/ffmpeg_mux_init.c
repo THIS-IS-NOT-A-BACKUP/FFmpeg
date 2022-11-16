@@ -97,7 +97,7 @@ static int check_opt_bitexact(void *ctx, const AVDictionary *opts,
     return 0;
 }
 
-static int choose_encoder(OptionsContext *o, AVFormatContext *s,
+static int choose_encoder(const OptionsContext *o, AVFormatContext *s,
                           OutputStream *ost, const AVCodec **enc)
 {
     enum AVMediaType type = ost->st->codecpar->codec_type;
@@ -170,7 +170,7 @@ static int get_preset_file_2(const char *preset_name, const char *codec_name, AV
     return ret;
 }
 
-static OutputStream *new_output_stream(Muxer *mux, OptionsContext *o,
+static OutputStream *new_output_stream(Muxer *mux, const OptionsContext *o,
                                        enum AVMediaType type, int source_index)
 {
     AVFormatContext *oc = mux->fc;
@@ -368,7 +368,7 @@ static OutputStream *new_output_stream(Muxer *mux, OptionsContext *o,
     return ost;
 }
 
-static char *get_ost_filters(OptionsContext *o, AVFormatContext *oc,
+static char *get_ost_filters(const OptionsContext *o, AVFormatContext *oc,
                              OutputStream *ost)
 {
     AVStream *st = ost->st;
@@ -388,7 +388,7 @@ static char *get_ost_filters(OptionsContext *o, AVFormatContext *oc,
                      "null" : "anull");
 }
 
-static void check_streamcopy_filters(OptionsContext *o, AVFormatContext *oc,
+static void check_streamcopy_filters(const OptionsContext *o, AVFormatContext *oc,
                                      const OutputStream *ost, enum AVMediaType type)
 {
     if (ost->filters_script || ost->filters) {
@@ -419,7 +419,7 @@ static void parse_matrix_coeffs(uint16_t *dest, const char *str)
     }
 }
 
-static OutputStream *new_video_stream(Muxer *mux, OptionsContext *o, int source_index)
+static OutputStream *new_video_stream(Muxer *mux, const OptionsContext *o, int source_index)
 {
     AVFormatContext *oc = mux->fc;
     AVStream *st;
@@ -658,7 +658,7 @@ static OutputStream *new_video_stream(Muxer *mux, OptionsContext *o, int source_
     return ost;
 }
 
-static OutputStream *new_audio_stream(Muxer *mux, OptionsContext *o, int source_index)
+static OutputStream *new_audio_stream(Muxer *mux, const OptionsContext *o, int source_index)
 {
     AVFormatContext *oc = mux->fc;
     AVStream *st;
@@ -756,7 +756,7 @@ static OutputStream *new_audio_stream(Muxer *mux, OptionsContext *o, int source_
     return ost;
 }
 
-static OutputStream *new_data_stream(Muxer *mux, OptionsContext *o, int source_index)
+static OutputStream *new_data_stream(Muxer *mux, const OptionsContext *o, int source_index)
 {
     OutputStream *ost;
 
@@ -769,7 +769,7 @@ static OutputStream *new_data_stream(Muxer *mux, OptionsContext *o, int source_i
     return ost;
 }
 
-static OutputStream *new_unknown_stream(Muxer *mux, OptionsContext *o, int source_index)
+static OutputStream *new_unknown_stream(Muxer *mux, const OptionsContext *o, int source_index)
 {
     OutputStream *ost;
 
@@ -782,14 +782,14 @@ static OutputStream *new_unknown_stream(Muxer *mux, OptionsContext *o, int sourc
     return ost;
 }
 
-static OutputStream *new_attachment_stream(Muxer *mux, OptionsContext *o, int source_index)
+static OutputStream *new_attachment_stream(Muxer *mux, const OptionsContext *o, int source_index)
 {
     OutputStream *ost = new_output_stream(mux, o, AVMEDIA_TYPE_ATTACHMENT, source_index);
     ost->finished    = 1;
     return ost;
 }
 
-static OutputStream *new_subtitle_stream(Muxer *mux, OptionsContext *o, int source_index)
+static OutputStream *new_subtitle_stream(Muxer *mux, const OptionsContext *o, int source_index)
 {
     AVStream *st;
     OutputStream *ost;
@@ -811,7 +811,7 @@ static OutputStream *new_subtitle_stream(Muxer *mux, OptionsContext *o, int sour
     return ost;
 }
 
-static void init_output_filter(OutputFilter *ofilter, OptionsContext *o,
+static void init_output_filter(OutputFilter *ofilter, const OptionsContext *o,
                                Muxer *mux)
 {
     OutputStream *ost;
@@ -852,7 +852,7 @@ static void init_output_filter(OutputFilter *ofilter, OptionsContext *o,
     avfilter_inout_free(&ofilter->out_tmp);
 }
 
-static void map_auto_video(Muxer *mux, OptionsContext *o)
+static void map_auto_video(Muxer *mux, const OptionsContext *o)
 {
     AVFormatContext *oc = mux->fc;
     InputStream *ist;
@@ -898,7 +898,7 @@ static void map_auto_video(Muxer *mux, OptionsContext *o)
         new_video_stream(mux, o, idx);
 }
 
-static void map_auto_audio(Muxer *mux, OptionsContext *o)
+static void map_auto_audio(Muxer *mux, const OptionsContext *o)
 {
     AVFormatContext *oc = mux->fc;
     InputStream *ist;
@@ -937,7 +937,7 @@ static void map_auto_audio(Muxer *mux, OptionsContext *o)
         new_audio_stream(mux, o, idx);
 }
 
-static void map_auto_subtitle(Muxer *mux, OptionsContext *o)
+static void map_auto_subtitle(Muxer *mux, const OptionsContext *o)
 {
     AVFormatContext *oc = mux->fc;
     char *subtitle_codec_name = NULL;
@@ -975,7 +975,7 @@ static void map_auto_subtitle(Muxer *mux, OptionsContext *o)
         }
 }
 
-static void map_auto_data(Muxer *mux, OptionsContext *o)
+static void map_auto_data(Muxer *mux, const OptionsContext *o)
 {
     AVFormatContext *oc = mux->fc;
     /* Data only if codec id match */
@@ -989,7 +989,7 @@ static void map_auto_data(Muxer *mux, OptionsContext *o)
     }
 }
 
-static void map_manual(Muxer *mux, OptionsContext *o, const StreamMap *map)
+static void map_manual(Muxer *mux, const OptionsContext *o, const StreamMap *map)
 {
     InputStream *ist;
 
@@ -1062,7 +1062,7 @@ loop_end:
     }
 }
 
-static void create_streams(Muxer *mux, OptionsContext *o)
+static void create_streams(Muxer *mux, const OptionsContext *o)
 {
     int auto_disable_v = o->video_disable;
     int auto_disable_a = o->audio_disable;
@@ -1194,7 +1194,7 @@ static int setup_sync_queues(Muxer *mux, AVFormatContext *oc, int64_t buf_size_u
     return 0;
 }
 
-static void of_add_attachments(Muxer *mux, OptionsContext *o)
+static void of_add_attachments(Muxer *mux, const OptionsContext *o)
 {
     OutputStream *ost;
     int err;
@@ -1494,7 +1494,10 @@ static int copy_chapters(InputFile *ifile, OutputFile *ofile, AVFormatContext *o
     return 0;
 }
 
-static int copy_metadata(const char *outspec, const char *inspec, AVFormatContext *oc, AVFormatContext *ic, OptionsContext *o)
+static int copy_metadata(const char *outspec, const char *inspec,
+                         AVFormatContext *oc, AVFormatContext *ic,
+                         int *metadata_global_manual, int *metadata_streams_manual,
+                         int *metadata_chapters_manual, const OptionsContext *o)
 {
     AVDictionary **meta_in = NULL;
     AVDictionary **meta_out = NULL;
@@ -1506,22 +1509,12 @@ static int copy_metadata(const char *outspec, const char *inspec, AVFormatContex
     parse_meta_type(inspec,  &type_in,  &idx_in,  &istream_spec);
     parse_meta_type(outspec, &type_out, &idx_out, &ostream_spec);
 
-    if (!ic) {
-        if (type_out == 'g' || !*outspec)
-            o->metadata_global_manual = 1;
-        if (type_out == 's' || !*outspec)
-            o->metadata_streams_manual = 1;
-        if (type_out == 'c' || !*outspec)
-            o->metadata_chapters_manual = 1;
-        return 0;
-    }
-
     if (type_in == 'g' || type_out == 'g')
-        o->metadata_global_manual = 1;
+        *metadata_global_manual = 1;
     if (type_in == 's' || type_out == 's')
-        o->metadata_streams_manual = 1;
+        *metadata_streams_manual = 1;
     if (type_in == 'c' || type_out == 'c')
-        o->metadata_chapters_manual = 1;
+        *metadata_chapters_manual = 1;
 
     /* ic is NULL when just disabling automatic mappings */
     if (!ic)
@@ -1584,11 +1577,14 @@ static int copy_metadata(const char *outspec, const char *inspec, AVFormatContex
     return 0;
 }
 
-static void copy_meta(Muxer *mux, OptionsContext *o)
+static void copy_meta(Muxer *mux, const OptionsContext *o)
 {
     OutputFile      *of = &mux->of;
     AVFormatContext *oc = mux->fc;
     int chapters_input_file = o->chapters_input_file;
+    int metadata_global_manual   = 0;
+    int metadata_streams_manual  = 0;
+    int metadata_chapters_manual = 0;
 
     /* copy metadata */
     for (int i = 0; i < o->nb_metadata_map; i++) {
@@ -1601,7 +1597,9 @@ static void copy_meta(Muxer *mux, OptionsContext *o)
         }
         copy_metadata(o->metadata_map[i].specifier, *p ? p + 1 : p, oc,
                       in_file_index >= 0 ?
-                      input_files[in_file_index]->ctx : NULL, o);
+                      input_files[in_file_index]->ctx : NULL,
+                      &metadata_global_manual, &metadata_streams_manual,
+                      &metadata_chapters_manual, o);
     }
 
     /* copy chapters */
@@ -1622,10 +1620,10 @@ static void copy_meta(Muxer *mux, OptionsContext *o)
     }
     if (chapters_input_file >= 0)
         copy_chapters(input_files[chapters_input_file], of, oc,
-                      !o->metadata_chapters_manual);
+                      !metadata_chapters_manual);
 
     /* copy global metadata by default */
-    if (!o->metadata_global_manual && nb_input_files){
+    if (!metadata_global_manual && nb_input_files){
         av_dict_copy(&oc->metadata, input_files[0]->ctx->metadata,
                      AV_DICT_DONT_OVERWRITE);
         if (of->recording_time != INT64_MAX)
@@ -1635,7 +1633,7 @@ static void copy_meta(Muxer *mux, OptionsContext *o)
         av_dict_set(&oc->metadata, "product_name", NULL, 0);
         av_dict_set(&oc->metadata, "product_version", NULL, 0);
     }
-    if (!o->metadata_streams_manual)
+    if (!metadata_streams_manual)
         for (int i = 0; i < of->nb_streams; i++) {
             OutputStream *ost = of->streams[i];
             InputStream *ist;
@@ -1715,7 +1713,7 @@ static int set_dispositions(OutputFile *of, AVFormatContext *ctx)
     return 0;
 }
 
-int of_open(OptionsContext *o, const char *filename)
+int of_open(const OptionsContext *o, const char *filename)
 {
     Muxer *mux;
     AVFormatContext *oc;
