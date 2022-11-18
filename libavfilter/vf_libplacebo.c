@@ -524,6 +524,7 @@ static int libplacebo_query_format(AVFilterContext *ctx)
     RET(init_vulkan(ctx));
 
     while ((desc = av_pix_fmt_desc_next(desc))) {
+        enum AVPixelFormat pixfmt = av_pix_fmt_desc_get_id(desc);
 
 #if PL_API_VER < 232
         // Older libplacebo can't handle >64-bit pixel formats, so safe-guard
@@ -532,7 +533,6 @@ static int libplacebo_query_format(AVFilterContext *ctx)
             continue;
 #endif
 
-        enum AVPixelFormat pixfmt = av_pix_fmt_desc_get_id(desc);
         if (pl_test_pixfmt(s->gpu, pixfmt)) {
             if ((err = ff_add_format(&in_fmts, pixfmt)) < 0)
                 return err;
@@ -551,8 +551,14 @@ fail:
 
 static int libplacebo_config_input(AVFilterLink *inlink)
 {
+    AVFilterContext *avctx = inlink->dst;
+    LibplaceboContext *s   = avctx->priv;
+
     if (inlink->format == AV_PIX_FMT_VULKAN)
         return ff_vk_filter_config_input(inlink);
+
+    /* Forward this to the vkctx for format selection */
+    s->vkctx.input_format = inlink->format;
 
     return 0;
 }
