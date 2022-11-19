@@ -582,12 +582,13 @@ static int libplacebo_config_output(AVFilterLink *outlink)
                                s->force_original_aspect_ratio,
                                s->force_divisible_by);
 
-    scale_sar = (AVRational){outlink->h * inlink->w, *out_w * *out_h};
+    scale_sar = (AVRational){*out_h * inlink->w, *out_w * inlink->h};
     if (inlink->sample_aspect_ratio.num)
         scale_sar = av_mul_q(scale_sar, inlink->sample_aspect_ratio);
 
     if (s->normalize_sar) {
         /* Apply all SAR during scaling, so we don't need to set the out SAR */
+        outlink->sample_aspect_ratio = (AVRational){ 1, 1 };
         s->target_sar = scale_sar;
     } else {
         /* This is consistent with other scale_* filters, which only
@@ -632,7 +633,7 @@ static const AVOption libplacebo_options[] = {
         { "decrease", NULL, 0, AV_OPT_TYPE_CONST, {.i64 = 1 }, 0, 0, STATIC, "force_oar" },
         { "increase", NULL, 0, AV_OPT_TYPE_CONST, {.i64 = 2 }, 0, 0, STATIC, "force_oar" },
     { "force_divisible_by", "enforce that the output resolution is divisible by a defined integer when force_original_aspect_ratio is used", OFFSET(force_divisible_by), AV_OPT_TYPE_INT, { .i64 = 1 }, 1, 256, STATIC },
-    { "normalize_sar", "force SAR normalization to 1:1", OFFSET(normalize_sar), AV_OPT_TYPE_BOOL, {.i64 = 1}, 0, 1, STATIC },
+    { "normalize_sar", "force SAR normalization to 1:1", OFFSET(normalize_sar), AV_OPT_TYPE_BOOL, {.i64 = 0}, 0, 1, STATIC },
     { "pad_crop_ratio", "ratio between padding and cropping when normalizing SAR (0=pad, 1=crop)", OFFSET(pad_crop_ratio), AV_OPT_TYPE_FLOAT, {.dbl=0.0}, 0.0, 1.0, DYNAMIC },
 
     {"colorspace", "select colorspace", OFFSET(colorspace), AV_OPT_TYPE_INT, {.i64=-1}, -1, AVCOL_SPC_NB-1, DYNAMIC, "colorspace"},
