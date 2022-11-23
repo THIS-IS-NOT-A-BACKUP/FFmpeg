@@ -141,8 +141,6 @@ unsigned nb_output_dumped = 0;
 static BenchmarkTimeStamps current_time;
 AVIOContext *progress_avio = NULL;
 
-InputStream **input_streams = NULL;
-int        nb_input_streams = 0;
 InputFile   **input_files   = NULL;
 int        nb_input_files   = 0;
 
@@ -279,7 +277,7 @@ static void sub2video_heartbeat(InputStream *ist, int64_t pts)
        video frames could be accumulating in the filter graph while a filter
        (possibly overlay) is desperately waiting for a subtitle frame. */
     for (i = 0; i < infile->nb_streams; i++) {
-        InputStream *ist2 = input_streams[infile->ist_index + i];
+        InputStream *ist2 = infile->streams[i];
         if (!ist2->sub2video.frame)
             continue;
         /* subtitles seem to be usually muxed ahead of other streams;
@@ -558,24 +556,6 @@ static void ffmpeg_cleanup(int ret)
     for (i = 0; i < nb_input_files; i++)
         ifile_close(&input_files[i]);
 
-    for (i = 0; i < nb_input_streams; i++) {
-        InputStream *ist = input_streams[i];
-
-        av_frame_free(&ist->decoded_frame);
-        av_packet_free(&ist->pkt);
-        av_dict_free(&ist->decoder_opts);
-        avsubtitle_free(&ist->prev_sub.subtitle);
-        av_frame_free(&ist->sub2video.frame);
-        av_freep(&ist->filters);
-        av_freep(&ist->hwaccel_device);
-        av_freep(&ist->dts_buffer);
-
-        avcodec_free_context(&ist->dec_ctx);
-        avcodec_parameters_free(&ist->par);
-
-        av_freep(&input_streams[i]);
-    }
-
     if (vstats_file) {
         if (fclose(vstats_file))
             av_log(NULL, AV_LOG_ERROR,
@@ -585,7 +565,6 @@ static void ffmpeg_cleanup(int ret)
     av_freep(&vstats_filename);
     av_freep(&filter_nbthreads);
 
-    av_freep(&input_streams);
     av_freep(&input_files);
     av_freep(&output_files);
 
@@ -616,6 +595,22 @@ static OutputStream *ost_iter(OutputStream *prev)
             return of->streams[ost_idx];
 
         ost_idx = 0;
+    }
+
+    return NULL;
+}
+
+InputStream *ist_iter(InputStream *prev)
+{
+    int if_idx  = prev ? prev->file_index : 0;
+    int ist_idx = prev ? prev->st->index + 1  : 0;
+
+    for (; if_idx < nb_input_files; if_idx++) {
+        InputFile *f = input_files[if_idx];
+        if (ist_idx < f->nb_streams)
+            return f->streams[ist_idx];
+
+        ist_idx = 0;
     }
 
     return NULL;
@@ -1115,14 +1110,11 @@ static void do_video_out(OutputFile *of,
     double delta, delta0;
     double duration = 0;
     double sync_ipts = AV_NOPTS_VALUE;
-    InputStream *ist = NULL;
+    InputStream *ist = ost->ist;
     AVFilterContext *filter = ost->filter->filter;
 
     init_output_stream_wrapper(ost, next_picture, 1);
     sync_ipts = adjust_frame_pts_to_encoder_tb(of, ost, next_picture);
-
-    if (ost->source_index >= 0)
-        ist = input_streams[ost->source_index];
 
     frame_rate = av_buffersink_get_frame_rate(filter);
     if (frame_rate.num > 0 && frame_rate.den > 0)
@@ -1406,7 +1398,7 @@ static void print_final_stats(int64_t total_size)
                i, f->ctx->url);
 
         for (j = 0; j < f->nb_streams; j++) {
-            InputStream *ist = input_streams[f->ist_index + j];
+            InputStream *ist = f->streams[j];
             enum AVMediaType type = ist->par->codec_type;
 
             total_size    += ist->data_size;
@@ -1757,9 +1749,8 @@ static void flush_encoders(void)
 static int check_output_constraints(InputStream *ist, OutputStream *ost)
 {
     OutputFile *of = output_files[ost->file_index];
-    int ist_index  = input_files[ist->file_index]->ist_index + ist->st->index;
 
-    if (ost->source_index != ist_index)
+    if (ost->ist != ist)
         return 0;
 
     if (ost->finished & MUXER_FINISHED)
@@ -2538,10 +2529,9 @@ static enum AVPixelFormat get_format(AVCodecContext *s, const enum AVPixelFormat
     return *p;
 }
 
-static int init_input_stream(int ist_index, char *error, int error_len)
+static int init_input_stream(InputStream *ist, char *error, int error_len)
 {
     int ret;
-    InputStream *ist = input_streams[ist_index];
 
     if (ist->decoding_needed) {
         const AVCodec *codec = ist->dec;
@@ -2603,13 +2593,6 @@ static int init_input_stream(int ist_index, char *error, int error_len)
     return 0;
 }
 
-static InputStream *get_input_stream(OutputStream *ost)
-{
-    if (ost->source_index >= 0)
-        return input_streams[ost->source_index];
-    return NULL;
-}
-
 static int compare_int64(const void *a, const void *b)
 {
     return FFDIFFSIGN(*(const int64_t *)a, *(const int64_t *)b);
@@ -2618,7 +2601,7 @@ static int compare_int64(const void *a, const void *b)
 static int init_output_stream_streamcopy(OutputStream *ost)
 {
     OutputFile *of = output_files[ost->file_index];
-    InputStream *ist = get_input_stream(ost);
+    InputStream *ist = ost->ist;
     InputFile *ifile = input_files[ist->file_index];
     AVCodecParameters *par = ost->st->codecpar;
     AVCodecContext *codec_ctx;
@@ -2831,7 +2814,7 @@ static void parse_forced_key_frames(char *kf, OutputStream *ost,
 
 static void init_encoder_time_base(OutputStream *ost, AVRational default_time_base)
 {
-    InputStream *ist = get_input_stream(ost);
+    InputStream *ist = ost->ist;
     AVCodecContext *enc_ctx = ost->enc_ctx;
 
     if (ost->enc_timebase.num > 0) {
@@ -2855,7 +2838,7 @@ static void init_encoder_time_base(OutputStream *ost, AVRational default_time_ba
 
 static int init_output_stream_encode(OutputStream *ost, AVFrame *frame)
 {
-    InputStream *ist = get_input_stream(ost);
+    InputStream *ist = ost->ist;
     AVCodecContext *enc_ctx = ost->enc_ctx;
     AVCodecContext *dec_ctx = NULL;
     OutputFile      *of = output_files[ost->file_index];
@@ -2870,7 +2853,7 @@ static int init_output_stream_encode(OutputStream *ost, AVFrame *frame)
     if (enc_ctx->codec_type == AVMEDIA_TYPE_VIDEO) {
         if (!ost->frame_rate.num)
             ost->frame_rate = av_buffersink_get_frame_rate(ost->filter->filter);
-        if (ist && !ost->frame_rate.num && !ost->max_frame_rate.num) {
+        if (!ost->frame_rate.num && !ost->max_frame_rate.num) {
             ost->frame_rate = (AVRational){25, 1};
             av_log(NULL, AV_LOG_WARNING,
                    "No information "
@@ -2999,8 +2982,8 @@ static int init_output_stream_encode(OutputStream *ost, AVFrame *frame)
     case AVMEDIA_TYPE_SUBTITLE:
         enc_ctx->time_base = AV_TIME_BASE_Q;
         if (!enc_ctx->width) {
-            enc_ctx->width     = input_streams[ost->source_index]->par->width;
-            enc_ctx->height    = input_streams[ost->source_index]->par->height;
+            enc_ctx->width     = ost->ist->par->width;
+            enc_ctx->height    = ost->ist->par->height;
         }
         if (dec_ctx && dec_ctx->subtitle_header) {
             /* ASS code assumes this buffer is null terminated so add extra byte. */
@@ -3056,13 +3039,12 @@ static int init_output_stream(OutputStream *ost, AVFrame *frame,
 
     if (ost->enc_ctx) {
         const AVCodec *codec = ost->enc_ctx->codec;
-        InputStream *ist;
+        InputStream *ist = ost->ist;
 
         ret = init_output_stream_encode(ost, frame);
         if (ret < 0)
             return ret;
 
-        ist = get_input_stream(ost);
         if (!av_dict_get(ost->encoder_opts, "threads", NULL, 0))
             av_dict_set(&ost->encoder_opts, "threads", "auto", 0);
 
@@ -3143,7 +3125,7 @@ static int init_output_stream(OutputStream *ost, AVFrame *frame,
         // copy estimated duration as a hint to the muxer
         if (ost->st->duration <= 0 && ist && ist->st->duration > 0)
             ost->st->duration = av_rescale_q(ist->st->duration, ist->st->time_base, ost->st->time_base);
-    } else if (ost->source_index >= 0) {
+    } else if (ost->ist) {
         ret = init_output_stream_streamcopy(ost);
         if (ret < 0)
             return ret;
@@ -3158,37 +3140,20 @@ static int init_output_stream(OutputStream *ost, AVFrame *frame,
 
 static int transcode_init(void)
 {
-    int ret = 0, i, j, k;
-    OutputStream *ost;
-    InputStream *ist;
+    int ret = 0;
     char error[1024] = {0};
 
-    for (i = 0; i < nb_filtergraphs; i++) {
-        FilterGraph *fg = filtergraphs[i];
-        for (j = 0; j < fg->nb_outputs; j++) {
-            OutputFilter *ofilter = fg->outputs[j];
-            if (!ofilter->ost || ofilter->ost->source_index >= 0)
-                continue;
-            if (fg->nb_inputs != 1)
-                continue;
-            for (k = nb_input_streams-1; k >= 0 ; k--)
-                if (fg->inputs[0]->ist == input_streams[k])
-                    break;
-            ofilter->ost->source_index = k;
-        }
-    }
-
     /* init framerate emulation */
-    for (i = 0; i < nb_input_files; i++) {
+    for (int i = 0; i < nb_input_files; i++) {
         InputFile *ifile = input_files[i];
         if (ifile->readrate || ifile->rate_emu)
-            for (j = 0; j < ifile->nb_streams; j++)
-                input_streams[j + ifile->ist_index]->start = av_gettime_relative();
+            for (int j = 0; j < ifile->nb_streams; j++)
+                ifile->streams[j]->start = av_gettime_relative();
     }
 
     /* init input streams */
-    for (i = 0; i < nb_input_streams; i++)
-        if ((ret = init_input_stream(i, error, sizeof(error))) < 0)
+    for (InputStream *ist = ist_iter(NULL); ist; ist = ist_iter(ist))
+        if ((ret = init_input_stream(ist, error, sizeof(error))) < 0)
             goto dump_format;
 
     /*
@@ -3200,7 +3165,7 @@ static int transcode_init(void)
      *   to be configured with the correct audio frame size, which is only
      *   known after the encoder is initialized.
      */
-    for (ost = ost_iter(NULL); ost; ost = ost_iter(ost)) {
+    for (OutputStream *ost = ost_iter(NULL); ost; ost = ost_iter(ost)) {
         if (ost->enc_ctx &&
             (ost->st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO ||
              ost->st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO))
@@ -3212,14 +3177,14 @@ static int transcode_init(void)
     }
 
     /* discard unused programs */
-    for (i = 0; i < nb_input_files; i++) {
+    for (int i = 0; i < nb_input_files; i++) {
         InputFile *ifile = input_files[i];
-        for (j = 0; j < ifile->ctx->nb_programs; j++) {
+        for (int j = 0; j < ifile->ctx->nb_programs; j++) {
             AVProgram *p = ifile->ctx->programs[j];
             int discard  = AVDISCARD_ALL;
 
-            for (k = 0; k < p->nb_stream_indexes; k++)
-                if (!input_streams[ifile->ist_index + p->stream_index[k]]->discard) {
+            for (int k = 0; k < p->nb_stream_indexes; k++)
+                if (!ifile->streams[p->stream_index[k]]->discard) {
                     discard = AVDISCARD_DEFAULT;
                     break;
                 }
@@ -3230,10 +3195,8 @@ static int transcode_init(void)
  dump_format:
     /* dump the stream mapping */
     av_log(NULL, AV_LOG_INFO, "Stream mapping:\n");
-    for (i = 0; i < nb_input_streams; i++) {
-        ist = input_streams[i];
-
-        for (j = 0; j < ist->nb_filters; j++) {
+    for (InputStream *ist = ist_iter(NULL); ist; ist = ist_iter(ist)) {
+        for (int j = 0; j < ist->nb_filters; j++) {
             if (!filtergraph_is_simple(ist->filters[j]->graph)) {
                 av_log(NULL, AV_LOG_INFO, "  Stream #%d:%d (%s) -> %s",
                        ist->file_index, ist->st->index, ist->dec ? ist->dec->name : "?",
@@ -3245,7 +3208,7 @@ static int transcode_init(void)
         }
     }
 
-    for (ost = ost_iter(NULL); ost; ost = ost_iter(ost)) {
+    for (OutputStream *ost = ost_iter(NULL); ost; ost = ost_iter(ost)) {
         if (ost->attachment_filename) {
             /* an attached file */
             av_log(NULL, AV_LOG_INFO, "  File %s -> Stream #%d:%d\n",
@@ -3265,12 +3228,12 @@ static int transcode_init(void)
         }
 
         av_log(NULL, AV_LOG_INFO, "  Stream #%d:%d -> #%d:%d",
-               input_streams[ost->source_index]->file_index,
-               input_streams[ost->source_index]->st->index,
+               ost->ist->file_index,
+               ost->ist->st->index,
                ost->file_index,
                ost->index);
         if (ost->enc_ctx) {
-            const AVCodec *in_codec    = input_streams[ost->source_index]->dec;
+            const AVCodec *in_codec    = ost->ist->dec;
             const AVCodec *out_codec   = ost->enc_ctx->codec;
             const char *decoder_name   = "?";
             const char *in_codec_name  = "?";
@@ -3436,7 +3399,11 @@ static int check_keyboard_interaction(int64_t cur_time)
     if (key == 'd' || key == 'D'){
         int debug=0;
         if(key == 'D') {
-            debug = input_streams[0]->dec_ctx->debug << 1;
+            InputStream *ist = ist_iter(NULL);
+
+            if (ist)
+                debug = ist->dec_ctx->debug << 1;
+
             if(!debug) debug = 1;
             while (debug & FF_DEBUG_DCT_COEFF) //unsupported, would just crash
                 debug += debug;
@@ -3454,9 +3421,8 @@ static int check_keyboard_interaction(int64_t cur_time)
             if (k <= 0 || sscanf(buf, "%d", &debug)!=1)
                 fprintf(stderr,"error parsing debug value\n");
         }
-        for(i=0;i<nb_input_streams;i++) {
-            input_streams[i]->dec_ctx->debug = debug;
-        }
+        for (InputStream *ist = ist_iter(NULL); ist; ist = ist_iter(ist))
+            ist->dec_ctx->debug = debug;
         for (OutputStream *ost = ost_iter(NULL); ost; ost = ost_iter(ost)) {
             if (ost->enc_ctx)
                 ost->enc_ctx->debug = debug;
@@ -3500,7 +3466,7 @@ static void reset_eagain(void)
 static void decode_flush(InputFile *ifile)
 {
     for (int i = 0; i < ifile->nb_streams; i++) {
-        InputStream *ist = input_streams[ifile->ist_index + i];
+        InputStream *ist = ifile->streams[i];
         int ret;
 
         if (!ist->processing_needed)
@@ -3647,7 +3613,7 @@ static int process_input(int file_index)
         }
 
         for (i = 0; i < ifile->nb_streams; i++) {
-            ist = input_streams[ifile->ist_index + i];
+            ist = ifile->streams[i];
             if (ist->processing_needed) {
                 ret = process_input_packet(ist, NULL, 0);
                 if (ret>0)
@@ -3656,7 +3622,7 @@ static int process_input(int file_index)
 
             /* mark all outputs that don't go through lavfi as finished */
             for (OutputStream *ost = ost_iter(NULL); ost; ost = ost_iter(ost)) {
-                if (ost->source_index == ifile->ist_index + i &&
+                if (ost->ist == ist &&
                     (!ost->enc_ctx || ost->enc_ctx->codec_type == AVMEDIA_TYPE_SUBTITLE)) {
                     OutputFile *of = output_files[ost->file_index];
                     of_output_packet(of, ost->pkt, ost, 1);
@@ -3670,7 +3636,7 @@ static int process_input(int file_index)
 
     reset_eagain();
 
-    ist = input_streams[ifile->ist_index + pkt->stream_index];
+    ist = ifile->streams[pkt->stream_index];
 
     ist->data_size += pkt->size;
     ist->nb_packets++;
@@ -3702,8 +3668,8 @@ static int process_input(int file_index)
     ts_discontinuity_process(ifile, ist, pkt);
 
     if (debug_ts) {
-        av_log(NULL, AV_LOG_INFO, "demuxer+ffmpeg -> ist_index:%d type:%s pkt_pts:%s pkt_pts_time:%s pkt_dts:%s pkt_dts_time:%s duration:%s duration_time:%s off:%s off_time:%s\n",
-               ifile->ist_index + pkt->stream_index,
+        av_log(NULL, AV_LOG_INFO, "demuxer+ffmpeg -> ist_index:%d:%d type:%s pkt_pts:%s pkt_pts_time:%s pkt_dts:%s pkt_dts_time:%s duration:%s duration_time:%s off:%s off_time:%s\n",
+               ifile->index, pkt->stream_index,
                av_get_media_type_string(ist->par->codec_type),
                av_ts2str(pkt->pts), av_ts2timestr(pkt->pts, &ist->st->time_base),
                av_ts2str(pkt->dts), av_ts2timestr(pkt->dts, &ist->st->time_base),
@@ -3845,8 +3811,8 @@ static int transcode_step(void)
             return 0;
         }
     } else {
-        av_assert0(ost->source_index >= 0);
-        ist = input_streams[ost->source_index];
+        ist = ost->ist;
+        av_assert0(ist);
     }
 
     ret = process_input(ist->file_index);
@@ -3907,8 +3873,7 @@ static int transcode(void)
     }
 
     /* at the end of stream, we must flush the decoder buffers */
-    for (i = 0; i < nb_input_streams; i++) {
-        ist = input_streams[i];
+    for (ist = ist_iter(NULL); ist; ist = ist_iter(ist)) {
         if (!input_files[ist->file_index]->eof_reached) {
             process_input_packet(ist, NULL, 0);
         }
@@ -3944,8 +3909,7 @@ static int transcode(void)
     }
 
     /* close each decoder */
-    for (i = 0; i < nb_input_streams; i++) {
-        ist = input_streams[i];
+    for (ist = ist_iter(NULL); ist; ist = ist_iter(ist)) {
         if (ist->decoding_needed) {
             avcodec_close(ist->dec_ctx);
         }
