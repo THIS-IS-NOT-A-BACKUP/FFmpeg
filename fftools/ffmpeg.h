@@ -487,6 +487,27 @@ typedef enum {
     MUXER_FINISHED = 2,
 } OSTFinished ;
 
+enum {
+    KF_FORCE_SOURCE         = 1,
+    KF_FORCE_SOURCE_NO_DROP = 2,
+};
+
+typedef struct KeyframeForceCtx {
+    int          type;
+
+    int64_t      ref_pts;
+
+    // timestamps of the forced keyframes, in AV_TIME_BASE_Q
+    int64_t     *pts;
+    int       nb_pts;
+    int          index;
+
+    AVExpr      *pexpr;
+    double       expr_const_values[FKF_NB];
+
+    int          dropped_keyframe;
+} KeyframeForceCtx;
+
 typedef struct OutputStream {
     int file_index;          /* file index */
     int index;               /* stream index in the output file */
@@ -543,15 +564,7 @@ typedef struct OutputStream {
 
     AVRational frame_aspect_ratio;
 
-    /* forced key frames */
-    int64_t forced_kf_ref_pts;
-    int64_t *forced_kf_pts;
-    int forced_kf_count;
-    int forced_kf_index;
-    char *forced_keyframes;
-    AVExpr *forced_keyframes_pexpr;
-    double forced_keyframes_expr_const_values[FKF_NB];
-    int dropped_keyframe;
+    KeyframeForceCtx kf;
 
     /* audio only */
 #if FFMPEG_OPT_MAP_CHANNEL
@@ -749,8 +762,6 @@ void of_close(OutputFile **pof);
  */
 void of_output_packet(OutputFile *of, AVPacket *pkt, OutputStream *ost, int eof);
 int64_t of_filesize(OutputFile *of);
-AVChapter * const *
-of_get_chapters(OutputFile *of, unsigned int *nb_chapters);
 
 int ifile_open(const OptionsContext *o, const char *filename);
 void ifile_close(InputFile **f);
