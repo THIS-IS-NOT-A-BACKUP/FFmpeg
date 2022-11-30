@@ -54,6 +54,7 @@ enum DirectionMode {
 enum SlideMode {
     SLIDE_REPLACE,
     SLIDE_SCROLL,
+    SLIDE_FRAME,
     NB_SLIDE
 };
 
@@ -64,7 +65,7 @@ typedef struct ShowCWTContext {
     char *rate_str;
     AVRational auto_frame_rate;
     AVRational frame_rate;
-    AVTXContext *fft;
+    AVTXContext **fft;
     AVTXContext **ifft;
     av_tx_fn tx_fn;
     av_tx_fn itx_fn;
@@ -73,15 +74,15 @@ typedef struct ShowCWTContext {
     int ifft_in_size;
     int ifft_out_size;
     int pos;
-    int in_nb_samples;
     int64_t in_pts;
     int64_t old_pts;
+    int64_t eof_pts;
     float *frequency_band;
     AVFrame *kernel;
     unsigned *index;
     int *kernel_start;
     int *kernel_stop;
-    AVFrame *overlap;
+    AVFrame *cache[2];
     AVFrame *outpicref;
     AVFrame *fft_in;
     AVFrame *fft_out;
@@ -92,9 +93,12 @@ typedef struct ShowCWTContext {
     int nb_channels;
     int nb_consumed_samples;
     int pps;
+    int eof;
     int slide;
+    int new_frame;
     int direction;
     int hop_size;
+    int hop_index;
     int ihop_size;
     int ihop_index;
     int input_padding_size;
@@ -136,6 +140,7 @@ static const AVOption showcwt_options[] = {
     { "slide", "set slide mode", OFFSET(slide), AV_OPT_TYPE_INT,  {.i64=0}, 0, NB_SLIDE-1, FLAGS, "slide" },
     {  "replace", "replace", 0, AV_OPT_TYPE_CONST,{.i64=SLIDE_REPLACE},0, 0, FLAGS, "slide" },
     {  "scroll",  "scroll",  0, AV_OPT_TYPE_CONST,{.i64=SLIDE_SCROLL}, 0, 0, FLAGS, "slide" },
+    {  "frame",   "frame",   0, AV_OPT_TYPE_CONST,{.i64=SLIDE_FRAME},  0, 0, FLAGS, "slide" },
     { "direction", "set direction mode", OFFSET(direction), AV_OPT_TYPE_INT,  {.i64=0}, 0, NB_DIRECTION-1, FLAGS, "direction" },
     {  "lr", "left to right", 0, AV_OPT_TYPE_CONST,{.i64=DIRECTION_LR}, 0, 0, FLAGS, "direction" },
     {  "rl", "right to left", 0, AV_OPT_TYPE_CONST,{.i64=DIRECTION_RL}, 0, 0, FLAGS, "direction" },
@@ -156,18 +161,25 @@ static av_cold void uninit(AVFilterContext *ctx)
     av_freep(&s->index);
 
     av_frame_free(&s->kernel);
-    av_frame_free(&s->overlap);
+    av_frame_free(&s->cache[0]);
+    av_frame_free(&s->cache[1]);
     av_frame_free(&s->outpicref);
     av_frame_free(&s->fft_in);
     av_frame_free(&s->fft_out);
     av_frame_free(&s->ifft_in);
     av_frame_free(&s->ifft_out);
     av_frame_free(&s->ch_out);
-    av_tx_uninit(&s->fft);
+
+    if (s->fft) {
+        for (int n = 0; n < s->nb_threads; n++)
+            av_tx_uninit(&s->fft[n]);
+        av_freep(&s->fft);
+    }
 
     if (s->ifft) {
         for (int n = 0; n < s->nb_threads; n++)
             av_tx_uninit(&s->ifft[n]);
+        av_freep(&s->ifft);
     }
 }
 
@@ -235,12 +247,6 @@ static void frequency_band(float *frequency_band,
     }
 }
 
-#define cmul(operator, index) {           \
-    const float ff = kernel[index];       \
-    isrc[n].re operator ff*dst[index].re; \
-    isrc[n].im operator ff*dst[index].im; \
-}
-
 static float remap_log(float value, float log_factor)
 {
     float sign = (0 < value) - (value < 0);
@@ -250,31 +256,39 @@ static float remap_log(float value, float log_factor)
     return 1.f - av_clipf(value, 0.f, 1.f);
 }
 
-static int run_channel_cwt_prepare(AVFilterContext *ctx, void *arg, int ch)
+static int run_channel_cwt_prepare(AVFilterContext *ctx, void *arg, int jobnr, int ch)
 {
     ShowCWTContext *s = ctx->priv;
+    const int hop_size = s->hop_size;
     AVFrame *fin = arg;
-    const float *input = (const float *)fin->extended_data[ch];
-    float *overlap = (float *)s->overlap->extended_data[ch];
+    float *cache0 = (float *)s->cache[0]->extended_data[ch];
+    float *cache = (float *)s->cache[1]->extended_data[ch];
     AVComplexFloat *src = (AVComplexFloat *)s->fft_in->extended_data[ch];
     AVComplexFloat *dst = (AVComplexFloat *)s->fft_out->extended_data[ch];
-    const int nb_consumed_samples = s->nb_consumed_samples;
-    const int input_padding_size = s->input_padding_size;
-    const int hop_size = s->hop_size;
-    const int offset = input_padding_size - hop_size;
 
-    memmove(overlap, &overlap[hop_size], offset * sizeof(float));
-    memcpy(&overlap[offset], input,
-           fin->nb_samples * sizeof(float));
-    memset(&overlap[offset + fin->nb_samples], 0,
-           (hop_size - fin->nb_samples) * sizeof(float));
+    if (fin) {
+        const int offset = s->hop_index;
+        const float *input = (const float *)fin->extended_data[ch];
 
-    for (int n = 0; n < nb_consumed_samples; n++) {
-        src[n].re = overlap[n];
-        src[n].im = 0.f;
+        memcpy(&cache[offset], input,
+               fin->nb_samples * sizeof(float));
     }
 
-    s->tx_fn(s->fft, dst, src, sizeof(*src));
+    if (fin == NULL) {
+        memset(&cache[s->hop_index], 0,
+               (hop_size - s->hop_index) * sizeof(float));
+    } else if (s->hop_index + fin->nb_samples < hop_size) {
+        return 0;
+    }
+
+    for (int n = 0; n < hop_size; n++) {
+        src[n].re = cache0[n];
+        src[n].im = 0.f;
+        src[n + hop_size].re = cache[n];
+        src[n + hop_size].im = 0.f;
+    }
+
+    s->tx_fn(s->fft[jobnr], dst, src, sizeof(*src));
 
     return 0;
 }
@@ -319,6 +333,7 @@ static int draw(AVFilterContext *ctx, void *arg, int jobnr, int nb_jobs)
 
         switch (s->slide) {
         case SLIDE_REPLACE:
+        case SLIDE_FRAME:
             /* nothing to do here */
             break;
         case SLIDE_SCROLL:
@@ -423,15 +438,15 @@ static int run_channel_cwt(AVFilterContext *ctx, void *arg, int jobnr, int nb_jo
         memset(isrc, 0, sizeof(*isrc) * output_sample_count);
         for (int i = kernel_start; i < kernel_stop; i++) {
             const unsigned n = index[i];
-            cmul(+=, i);
+            const float ff = kernel[i];
+
+            isrc[n].re += ff * dst[i].re;
+            isrc[n].im += ff * dst[i].im;
         }
 
         s->itx_fn(s->ifft[jobnr], idst, isrc, sizeof(*isrc));
 
-        for (int i = 0; i < ihop_size; i++) {
-            chout[i].re = idst[ioffset + i].re;
-            chout[i].im = idst[ioffset + i].im;
-        }
+        memcpy(chout, idst + ioffset, sizeof(*chout) * ihop_size);
     }
 
     return 0;
@@ -504,9 +519,11 @@ static int config_output(AVFilterLink *outlink)
         break;
     }
 
+    s->new_frame = 1;
     s->nb_threads = FFMIN(s->frequency_band_count, ff_filter_get_nb_threads(ctx));
     s->nb_channels = inlink->ch_layout.nb_channels;
     s->old_pts = AV_NOPTS_VALUE;
+    s->eof_pts = AV_NOPTS_VALUE;
     s->nb_consumed_samples = 65536;
 
     s->input_sample_count = s->nb_consumed_samples;
@@ -527,9 +544,15 @@ static int config_output(AVFilterLink *outlink)
     s->ifft_out_size = FFALIGN(s->output_padding_size, av_cpu_max_align());
     s->ihop_size = s->output_padding_size >> 1;
 
-    ret = av_tx_init(&s->fft, &s->tx_fn, AV_TX_FLOAT_FFT, 0, s->input_padding_size, &scale, 0);
-    if (ret < 0)
-        return ret;
+    s->fft = av_calloc(s->nb_threads, sizeof(*s->fft));
+    if (!s->fft)
+        return AVERROR(ENOMEM);
+
+    for (int n = 0; n < s->nb_threads; n++) {
+        ret = av_tx_init(&s->fft[n], &s->tx_fn, AV_TX_FLOAT_FFT, 0, s->input_padding_size, &scale, 0);
+        if (ret < 0)
+            return ret;
+    }
 
     s->ifft = av_calloc(s->nb_threads, sizeof(*s->ifft));
     if (!s->ifft)
@@ -546,7 +569,8 @@ static int config_output(AVFilterLink *outlink)
     s->outpicref = ff_get_video_buffer(outlink, outlink->w, outlink->h);
     s->fft_in = ff_get_audio_buffer(inlink, s->fft_in_size * 2);
     s->fft_out = ff_get_audio_buffer(inlink, s->fft_out_size * 2);
-    s->overlap = ff_get_audio_buffer(inlink, s->input_padding_size);
+    s->cache[0] = ff_get_audio_buffer(inlink, s->hop_size);
+    s->cache[1] = ff_get_audio_buffer(inlink, s->hop_size);
     s->ch_out = ff_get_audio_buffer(inlink, s->frequency_band_count * 2 * s->ihop_size);
     s->ifft_in = av_frame_alloc();
     s->ifft_out = av_frame_alloc();
@@ -556,7 +580,7 @@ static int config_output(AVFilterLink *outlink)
     s->kernel_stop = av_calloc(s->frequency_band_count, sizeof(*s->kernel_stop));
     if (!s->outpicref || !s->fft_in || !s->fft_out ||
         !s->ifft_in || !s->ifft_out || !s->kernel_start || !s->kernel_stop ||
-        !s->frequency_band || !s->kernel || !s->overlap || !s->index)
+        !s->frequency_band || !s->kernel || !s->cache[0] || !s->cache[1] || !s->index)
         return AVERROR(ENOMEM);
 
     s->ifft_in->format     = inlink->format;
@@ -651,6 +675,201 @@ static int config_output(AVFilterLink *outlink)
     return 0;
 }
 
+static int output_frame(AVFilterContext *ctx)
+{
+    AVFilterLink *outlink = ctx->outputs[0];
+    AVFilterLink *inlink = ctx->inputs[0];
+    ShowCWTContext *s = ctx->priv;
+    int ret;
+
+    switch (s->slide) {
+    case SLIDE_SCROLL:
+        switch (s->direction) {
+        case DIRECTION_UD:
+            for (int p = 0; p < 3; p++) {
+                ptrdiff_t linesize = s->outpicref->linesize[p];
+
+                for (int y = s->h - 1; y > 0; y--) {
+                    uint8_t *dst = s->outpicref->data[p] + y * linesize;
+
+                    memmove(dst, dst - linesize, s->w);
+                }
+            }
+            break;
+        case DIRECTION_DU:
+            for (int p = 0; p < 3; p++) {
+                ptrdiff_t linesize = s->outpicref->linesize[p];
+
+                for (int y = 0; y < s->h - 1; y++) {
+                    uint8_t *dst = s->outpicref->data[p] + y * linesize;
+
+                    memmove(dst, dst + linesize, s->w);
+                }
+            }
+            break;
+        }
+        break;
+    }
+
+    ff_filter_execute(ctx, draw, NULL, NULL, s->nb_threads);
+
+    switch (s->slide) {
+    case SLIDE_REPLACE:
+    case SLIDE_FRAME:
+        switch (s->direction) {
+        case DIRECTION_LR:
+            s->pos++;
+            if (s->pos >= s->w) {
+                s->pos = 0;
+                s->new_frame = 1;
+            }
+            break;
+        case DIRECTION_RL:
+            s->pos--;
+            if (s->pos < 0) {
+                s->pos = s->w - 1;
+                s->new_frame = 1;
+            }
+            break;
+        case DIRECTION_UD:
+            s->pos++;
+            if (s->pos >= s->h) {
+                s->pos = 0;
+                s->new_frame = 1;
+            }
+            break;
+        case DIRECTION_DU:
+            s->pos--;
+            if (s->pos < 0) {
+                s->pos = s->h - 1;
+                s->new_frame = 1;
+            }
+            break;
+        }
+        break;
+    case SLIDE_SCROLL:
+        switch (s->direction) {
+        case DIRECTION_UD:
+        case DIRECTION_LR:
+            s->pos = 0;
+            break;
+        case DIRECTION_RL:
+            s->pos = s->w - 1;
+            break;
+        case DIRECTION_DU:
+            s->pos = s->h - 1;
+            break;
+        }
+        break;
+    }
+
+    if (s->slide == SLIDE_FRAME && s->eof) {
+        switch (s->direction) {
+        case DIRECTION_LR:
+            for (int p = 0; p < 3; p++) {
+                ptrdiff_t linesize = s->outpicref->linesize[p];
+                const int size = s->w - s->pos;
+                const int fill = p ? 128 : 0;
+                const int x = s->pos;
+
+                for (int y = 0; y < s->h; y++) {
+                    uint8_t *dst = s->outpicref->data[p] + y * linesize + x;
+
+                    memset(dst, fill, size);
+                }
+            }
+            break;
+        case DIRECTION_RL:
+            for (int p = 0; p < 3; p++) {
+                ptrdiff_t linesize = s->outpicref->linesize[p];
+                const int size = s->w - s->pos;
+                const int fill = p ? 128 : 0;
+
+                for (int y = 0; y < s->h; y++) {
+                    uint8_t *dst = s->outpicref->data[p] + y * linesize;
+
+                    memset(dst, fill, size);
+                }
+            }
+            break;
+        case DIRECTION_UD:
+            for (int p = 0; p < 3; p++) {
+                ptrdiff_t linesize = s->outpicref->linesize[p];
+                const int fill = p ? 128 : 0;
+
+                for (int y = s->pos; y < s->h; y++) {
+                    uint8_t *dst = s->outpicref->data[p] + y * linesize;
+
+                    memset(dst, fill, s->w);
+                }
+            }
+            break;
+        case DIRECTION_DU:
+            for (int p = 0; p < 3; p++) {
+                ptrdiff_t linesize = s->outpicref->linesize[p];
+                const int fill = p ? 128 : 0;
+
+                for (int y = s->h - s->pos; y >= 0; y--) {
+                    uint8_t *dst = s->outpicref->data[p] + y * linesize;
+
+                    memset(dst, fill, s->w);
+                }
+            }
+            break;
+        }
+    }
+
+    s->new_frame = s->slide == SLIDE_FRAME && (s->new_frame || s->eof);
+
+    if (s->slide != SLIDE_FRAME || s->new_frame == 1) {
+        int64_t pts_offset = s->new_frame ? 0LL : av_rescale(s->ihop_index, s->hop_size, s->ihop_size);
+
+        s->outpicref->pts = av_rescale_q(s->in_pts + pts_offset, inlink->time_base, outlink->time_base);
+    }
+
+    s->ihop_index++;
+    if (s->ihop_index >= s->ihop_size)
+        s->ihop_index = 0;
+
+    if (s->slide == SLIDE_FRAME && s->new_frame == 0)
+        return 1;
+
+    if (s->old_pts < s->outpicref->pts) {
+        AVFrame *out = ff_get_video_buffer(outlink, outlink->w, outlink->h);
+        if (!out)
+            return AVERROR(ENOMEM);
+        ret = av_frame_copy_props(out, s->outpicref);
+        if (ret < 0)
+            goto fail;
+        ret = av_frame_copy(out, s->outpicref);
+        if (ret < 0)
+            goto fail;
+        s->old_pts = s->outpicref->pts;
+        s->new_frame = 0;
+        ret = ff_filter_frame(outlink, out);
+        if (ret <= 0)
+            return ret;
+fail:
+        av_frame_free(&out);
+        return ret;
+    }
+
+    return 1;
+}
+
+static int run_channels_cwt_prepare(AVFilterContext *ctx, void *arg, int jobnr, int nb_jobs)
+{
+    ShowCWTContext *s = ctx->priv;
+    const int count = s->nb_channels;
+    const int start = (count * jobnr) / nb_jobs;
+    const int end = (count * (jobnr+1)) / nb_jobs;
+
+    for (int ch = start; ch < end; ch++)
+        run_channel_cwt_prepare(ctx, arg, jobnr, ch);
+
+    return 0;
+}
+
 static int activate(AVFilterContext *ctx)
 {
     AVFilterLink *inlink = ctx->inputs[0];
@@ -662,52 +881,35 @@ static int activate(AVFilterContext *ctx)
     FF_FILTER_FORWARD_STATUS_BACK(outlink, inlink);
 
     if (s->outpicref) {
-        AVFrame *fin;
+        AVFrame *fin = NULL;
 
         if (s->ihop_index == 0) {
-            ret = ff_inlink_consume_samples(inlink, s->hop_size, s->hop_size, &fin);
-            if (ret < 0)
-                return ret;
-            if (ret > 0) {
-                for (int ch = 0; ch < s->nb_channels; ch++)
-                    run_channel_cwt_prepare(ctx, fin, ch);
+            if (!s->eof) {
+                ret = ff_inlink_consume_samples(inlink, 1, s->hop_size - s->hop_index, &fin);
+                if (ret < 0)
+                    return ret;
+            }
 
-                s->in_pts = fin->pts;
-                s->in_nb_samples = fin->nb_samples;
-                av_frame_free(&fin);
+            if (ret > 0 || s->eof) {
+                ff_filter_execute(ctx, run_channels_cwt_prepare, fin, NULL,
+                                  FFMIN(s->nb_threads, s->nb_channels));
+                if (fin) {
+                    if ((s->hop_index == 0 && s->slide != SLIDE_FRAME) || s->new_frame) {
+                        s->in_pts = fin->pts;
+                        s->new_frame = 0;
+                    }
+                    s->hop_index += fin->nb_samples;
+                    av_frame_free(&fin);
+                } else {
+                    s->hop_index = s->hop_size;
+                }
             }
         }
 
-        if (ret > 0 || s->ihop_index > 0) {
-            int64_t pts_offset;
-
-            switch (s->slide) {
-            case SLIDE_SCROLL:
-                switch (s->direction) {
-                case DIRECTION_UD:
-                    for (int p = 0; p < 3; p++) {
-                        ptrdiff_t linesize = s->outpicref->linesize[p];
-
-                        for (int y = s->h - 1; y > 0; y--) {
-                            uint8_t *dst = s->outpicref->data[p] + y * linesize;
-
-                            memmove(dst, dst - linesize, s->w);
-                        }
-                    }
-                    break;
-                case DIRECTION_DU:
-                    for (int p = 0; p < 3; p++) {
-                        ptrdiff_t linesize = s->outpicref->linesize[p];
-
-                        for (int y = 0; y < s->h - 1; y++) {
-                            uint8_t *dst = s->outpicref->data[p] + y * linesize;
-
-                            memmove(dst, dst + linesize, s->w);
-                        }
-                    }
-                    break;
-                }
-                break;
+        if (s->hop_index >= s->hop_size || s->ihop_index > 0) {
+            if (s->hop_index) {
+                FFSWAP(AVFrame *, s->cache[0], s->cache[1]);
+                s->hop_index = 0;
             }
 
             for (int ch = 0; ch < s->nb_channels && s->ihop_index == 0; ch++) {
@@ -715,87 +917,31 @@ static int activate(AVFilterContext *ctx)
                                   s->nb_threads);
             }
 
-            ff_filter_execute(ctx, draw, NULL, NULL, s->nb_threads);
-
-            pts_offset = av_rescale_q(s->ihop_index, av_make_q(1, s->ihop_size), av_make_q(1, s->in_nb_samples));
-            s->outpicref->pts = av_rescale_q(s->in_pts + pts_offset, inlink->time_base, outlink->time_base);
-
-            s->ihop_index++;
-            if (s->ihop_index >= s->ihop_size)
-                s->ihop_index = 0;
-
-            switch (s->slide) {
-            case SLIDE_REPLACE:
-                switch (s->direction) {
-                case DIRECTION_LR:
-                    s->pos++;
-                    if (s->pos >= s->w)
-                        s->pos = 0;
-                    break;
-                case DIRECTION_RL:
-                    s->pos--;
-                    if (s->pos < 0)
-                        s->pos = s->w - 1;
-                    break;
-                case DIRECTION_UD:
-                    s->pos++;
-                    if (s->pos >= s->h)
-                        s->pos = 0;
-                    break;
-                case DIRECTION_DU:
-                    s->pos--;
-                    if (s->pos < 0)
-                        s->pos = s->h - 1;
-                    break;
-                }
-                break;
-            case SLIDE_SCROLL:
-                switch (s->direction) {
-                case DIRECTION_LR:
-                    s->pos = 0;
-                    break;
-                case DIRECTION_RL:
-                    s->pos = s->w - 1;
-                    break;
-                case DIRECTION_UD:
-                    s->pos = 0;
-                    break;
-                case DIRECTION_DU:
-                    s->pos = s->h - 1;
-                    break;
-                }
-                break;
-            }
-
-            if (s->old_pts < s->outpicref->pts) {
-                AVFrame *out = ff_get_video_buffer(outlink, outlink->w, outlink->h);
-                if (!out)
-                    return AVERROR(ENOMEM);
-                ret = av_frame_copy_props(out, s->outpicref);
-                if (ret < 0)
-                    goto fail;
-                ret = av_frame_copy(out, s->outpicref);
-                if (ret < 0)
-                    goto fail;
-                s->old_pts = s->outpicref->pts;
-                ret = ff_filter_frame(outlink, out);
-                if (ret <= 0)
-                    return ret;
-fail:
-                av_frame_free(&out);
+            ret = output_frame(ctx);
+            if (ret != 1)
                 return ret;
-            }
         }
     }
 
-    if (ff_inlink_acknowledge_status(inlink, &status, &pts)) {
+    if (s->eof && s->eof_pts != AV_NOPTS_VALUE &&
+        (s->old_pts + 1 >= s->eof_pts || (s->slide == SLIDE_FRAME))) {
+        if (s->slide == SLIDE_FRAME)
+            ret = output_frame(ctx);
+        ff_outlink_set_status(outlink, AVERROR_EOF, s->eof_pts);
+        return ret;
+    }
+
+    if (!s->eof && ff_inlink_acknowledge_status(inlink, &status, &pts)) {
         if (status == AVERROR_EOF) {
-            ff_outlink_set_status(outlink, status, pts);
+            s->eof = 1;
+            ff_filter_set_ready(ctx, 10);
+            s->eof_pts = av_rescale_q(pts, inlink->time_base, outlink->time_base);
             return 0;
         }
     }
 
-    if (ff_inlink_queued_samples(inlink) >= s->hop_size || s->ihop_index) {
+    if (ff_inlink_queued_samples(inlink) > 0 || s->ihop_index ||
+        s->hop_index >= s->hop_size || s->eof) {
         ff_filter_set_ready(ctx, 10);
         return 0;
     }
