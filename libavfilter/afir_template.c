@@ -159,7 +159,7 @@ static void fn(convert_channels)(AVFilterContext *ctx, AudioFIRContext *s)
                 memset(blockin, 0, sizeof(*blockin) * seg->fft_length);
                 memcpy(blockin, time + toffset, size * sizeof(*blockin));
 
-                seg->tx_fn(seg->tx[0], blockout, blockin, sizeof(ftype));
+                seg->ctx_fn(seg->ctx, blockout, blockin, sizeof(ftype));
 
                 for (int n = 0; n < seg->part_size + 1; n++) {
                     coeff[coffset + n].re = blockout[2 * n];
@@ -267,6 +267,7 @@ static int fn(fir_quantum)(AVFilterContext *ctx, AVFrame *out, int ch, int offse
         ftype *sumin = (ftype *)seg->sumin->extended_data[ch];
         ftype *sumout = (ftype *)seg->sumout->extended_data[ch];
         int *output_offset = &seg->output_offset[ch];
+        const int nb_partitions = seg->nb_partitions;
         const int input_offset = seg->input_offset;
         const int part_size = seg->part_size;
         int j;
@@ -306,7 +307,7 @@ static int fn(fir_quantum)(AVFilterContext *ctx, AVFrame *out, int ch, int offse
 
         j = seg->part_index[ch];
 
-        for (int i = 0; i < seg->nb_partitions; i++) {
+        for (int i = 0; i < nb_partitions; i++) {
             const int coffset = j * seg->coeff_size;
             const ftype *blockout = (const ftype *)seg->blockout->extended_data[ch] + i * seg->block_size;
             const ctype *coeff = (const ctype *)seg->coeff->extended_data[ch * !s->one2many] + coffset;
@@ -316,9 +317,8 @@ static int fn(fir_quantum)(AVFilterContext *ctx, AVFrame *out, int ch, int offse
 #else
             s->afirdsp.dcmul_add(sumin, blockout, (const ftype *)coeff, part_size);
 #endif
-
             if (j == 0)
-                j = seg->nb_partitions;
+                j = nb_partitions;
             j--;
         }
 
@@ -332,12 +332,15 @@ static int fn(fir_quantum)(AVFilterContext *ctx, AVFrame *out, int ch, int offse
         buf = (ftype *)seg->buffer->extended_data[ch];
         memcpy(buf, sumout + part_size, part_size * sizeof(*buf));
 
-        seg->part_index[ch] = (seg->part_index[ch] + 1) % seg->nb_partitions;
+        seg->part_index[ch] = (seg->part_index[ch] + 1) % nb_partitions;;
 
         memmove(src, src + min_part_size, (seg->input_size - min_part_size) * sizeof(*src));
 
         fn(fir_fadd)(s, ptr, dst, nb_samples);
     }
+
+    if (s->wet_gain == 1.f)
+        return 0;
 
     if (min_part_size >= 8) {
 #if DEPTH == 32
