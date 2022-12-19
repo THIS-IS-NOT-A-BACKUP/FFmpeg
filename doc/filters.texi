@@ -1631,6 +1631,12 @@ select DC gain, limited application.
 
 @item gn
 select gain to noise approach, this is most popular one.
+
+@item ac
+select AC gain.
+
+@item rms
+select RMS gain.
 @end table
 
 @item irgain
@@ -10916,6 +10922,11 @@ stream is the clean source from where the kept frames are chosen. Default is
 @item chroma
 Set whether or not chroma is considered in the metric calculations. Default is
 @code{1}.
+
+@item mixed
+Set whether or not the input only partially contains content to be decimated.
+Default is @code{false}.
+If enabled video output stream will be in variable frame rate.
 @end table
 
 @section deconvolve
