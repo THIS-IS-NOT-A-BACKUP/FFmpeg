@@ -59,7 +59,8 @@ static void fn(draw_response)(AVFilterContext *ctx, AVFrame *out)
     char text[32];
     int channel, i, x;
 
-    memset(out->data[0], 0, s->h * out->linesize[0]);
+    for (int y = 0; y < s->h; y++)
+        memset(out->data[0] + y * out->linesize[0], 0, s->w * 4);
 
     phase = av_malloc_array(s->w, sizeof(*phase));
     mag = av_malloc_array(s->w, sizeof(*mag));
@@ -402,7 +403,8 @@ static int fn(fir_quantum)(AVFilterContext *ctx, AVFrame *out, int ch, int offse
 
         seg->part_index[ch] = (seg->part_index[ch] + 1) % nb_partitions;
 
-        memmove(src, src + min_part_size, (seg->input_size - min_part_size) * sizeof(*src));
+        if (part_size != min_part_size)
+            memmove(src, src + min_part_size, (seg->input_size - min_part_size) * sizeof(*src));
 
         fn(fir_fadd)(s, ptr, dst, nb_samples);
     }
