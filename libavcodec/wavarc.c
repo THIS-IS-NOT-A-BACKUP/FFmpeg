@@ -52,7 +52,7 @@ static av_cold int wavarc_init(AVCodecContext *avctx)
 {
     WavArcContext *s = avctx->priv_data;
 
-    if (avctx->extradata_size < 44)
+    if (avctx->extradata_size < 52)
         return AVERROR_INVALIDDATA;
     if (AV_RL32(avctx->extradata + 16) != MKTAG('R','I','F','F'))
         return AVERROR_INVALIDDATA;
@@ -68,9 +68,9 @@ static av_cold int wavarc_init(AVCodecContext *avctx)
     av_channel_layout_default(&avctx->ch_layout, AV_RL16(avctx->extradata + 38));
     avctx->sample_rate = AV_RL32(avctx->extradata + 40);
 
-    switch (avctx->extradata[36]) {
-    case 0: avctx->sample_fmt = AV_SAMPLE_FMT_U8P;  break;
-    case 1: avctx->sample_fmt = AV_SAMPLE_FMT_S16P; break;
+    switch (AV_RL16(avctx->extradata + 50)) {
+    case  8: avctx->sample_fmt = AV_SAMPLE_FMT_U8P;  break;
+    case 16: avctx->sample_fmt = AV_SAMPLE_FMT_S16P; break;
     }
 
     s->shift = 0;
@@ -258,6 +258,10 @@ static int decode_2slp(AVCodecContext *avctx,
             return AVERROR_EOF;
         case 8:
             s->nb_samples = get_urice(gb, 8);
+            if (s->nb_samples > 570) {
+                s->nb_samples = 570;
+                return AVERROR_INVALIDDATA;
+            }
             continue;
         case 7:
             s->shift = get_urice(gb, 2);
@@ -407,7 +411,7 @@ fail:
             const int *src = s->samples[ch] + s->offset;
 
             for (int n = 0; n < frame->nb_samples; n++)
-                dst[n] = src[n] * (1 << s->shift);
+                dst[n] = src[n] * (1 << s->shift) + 0x80U;
         }
         break;
     case AV_SAMPLE_FMT_S16P:
