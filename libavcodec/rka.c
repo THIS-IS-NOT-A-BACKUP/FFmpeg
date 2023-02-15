@@ -77,8 +77,8 @@ typedef struct ChContext {
 
     Model64 mdl64[4][11];
 
-    int32_t buf0[12001];
-    int32_t buf1[12001];
+    int32_t buf0[131072+2560];
+    int32_t buf1[131072+2560];
 } ChContext;
 
 typedef struct RKAContext {
@@ -90,6 +90,7 @@ typedef struct RKAContext {
     int bps;
     int align;
     int channels;
+    int correlated;
     int frame_samples;
     int last_nb_samples;
     uint32_t total_nb_samples;
@@ -148,7 +149,8 @@ static av_cold int rka_decode_init(AVCodecContext *avctx)
         return AVERROR_INVALIDDATA;
     }
 
-    s->channels = avctx->ch_layout.nb_channels;
+    av_channel_layout_uninit(&avctx->ch_layout);
+    s->channels = avctx->ch_layout.nb_channels = avctx->extradata[12];
     if (s->channels < 1 || s->channels > 2)
         return AVERROR_INVALIDDATA;
 
@@ -156,14 +158,15 @@ static av_cold int rka_decode_init(AVCodecContext *avctx)
     s->samples_left = s->total_nb_samples = (AV_RL32(avctx->extradata + 4)) / s->align;
     s->frame_samples = 131072 / s->align;
     s->last_nb_samples = s->total_nb_samples % s->frame_samples;
+    s->correlated = avctx->extradata[15] & 1;
 
     cmode = avctx->extradata[14] & 0xf;
     if ((avctx->extradata[15] & 4) != 0)
         cmode = -cmode;
 
-    s->ch[0].cmode = s->ch[1].cmode = cmode;
-    s->ch[0].cmode2 = -s->ch[0].cmode;
-    s->ch[1].cmode2 = -s->ch[1].cmode;
+    s->ch[0].cmode = s->ch[1].cmode = cmode < 0 ? 2 : cmode;
+    s->ch[0].cmode2 = cmode < 0 ? FFABS(cmode) : 0;
+    s->ch[1].cmode2 = cmode < 0 ? FFABS(cmode) : 0;
     av_log(avctx, AV_LOG_DEBUG, "cmode: %d\n", cmode);
 
     return 0;
@@ -662,7 +665,9 @@ static int mdl64_decode(ACoder *ac, Model64 *ctx, int *dst)
     return 0;
 }
 
-static const uint8_t tab[] = { 0, 3, 3, 2, 2, 1, 1, 1, 1 };
+static const uint8_t tab[16] = {
+    0, 3, 3, 2, 2, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0
+};
 
 static int decode_filter(RKAContext *s, ChContext *ctx, ACoder *ac, int off, unsigned size)
 {
@@ -699,6 +704,9 @@ static int decode_filter(RKAContext *s, ChContext *ctx, ACoder *ac, int off, uns
         for (int y = 0; y < FFMIN(split, size - x); y++, off++) {
             int midx, shift = idx, *src, sum = 16;
 
+            if (off >= FF_ARRAY_ELEMS(ctx->buf0))
+                return -1;
+
             midx = FFABS(last_val) >> shift;
             if (midx >= 15) {
                 mdl64 = &ctx->mdl64[3][idx];
@@ -729,7 +737,7 @@ static int decode_filter(RKAContext *s, ChContext *ctx, ACoder *ac, int off, uns
                 }
                 ctx->buf0[off] = ctx->buf1[off] + ctx->buf0[off + -1];
             } else {
-                val = val * (1 << ctx->cmode & 0x1f);
+                val <<= ctx->cmode;
                 sum += ctx->buf0[off + -1] + val;
                 switch (s->bps) {
                 case 16: sum = av_clip_int16(sum); break;
@@ -854,7 +862,7 @@ static int rka_decode_frame(AVCodecContext *avctx, AVFrame *frame,
     if ((ret = ff_get_buffer(avctx, frame, 0)) < 0)
         return ret;
 
-    if (s->channels == 2) {
+    if (s->channels == 2 && s->correlated) {
         int16_t *l16 = (int16_t *)frame->extended_data[0];
         int16_t *r16 = (int16_t *)frame->extended_data[1];
         uint8_t *l8 = frame->extended_data[0];
@@ -903,35 +911,38 @@ static int rka_decode_frame(AVCodecContext *avctx, AVFrame *frame,
             n += ret;
         }
     } else {
-        int16_t *m16 = (int16_t *)frame->data[0];
-        uint8_t *m8 = frame->data[0];
-
         for (int n = 0; n < frame->nb_samples;) {
-            ret = decode_ch_samples(avctx, &s->ch[0]);
-            if (ret == 0) {
-                frame->nb_samples = n;
-                break;
-            }
-            if (ret < 0 || n + ret > frame->nb_samples)
-                return AVERROR_INVALIDDATA;
+            for (int ch = 0; ch < s->channels; ch++) {
+                int16_t *m16 = (int16_t *)frame->data[ch];
+                uint8_t *m8 = frame->data[ch];
 
-            switch (avctx->sample_fmt) {
-            case AV_SAMPLE_FMT_S16P:
-                for (int i = 0; i < ret; i++) {
-                    int m = s->ch[0].buf0[2560 + i];
-
-                    m16[n + i] = m;
+                ret = decode_ch_samples(avctx, &s->ch[ch]);
+                if (ret == 0) {
+                    frame->nb_samples = n;
+                    break;
                 }
-                break;
-            case AV_SAMPLE_FMT_U8P:
-                for (int i = 0; i < ret; i++) {
-                    int m = s->ch[0].buf0[2560 + i];
 
-                    m8[n + i] = m + 0x7f;
+                if (ret < 0 || n + ret > frame->nb_samples)
+                    return AVERROR_INVALIDDATA;
+
+                switch (avctx->sample_fmt) {
+                case AV_SAMPLE_FMT_S16P:
+                    for (int i = 0; i < ret; i++) {
+                        int m = s->ch[ch].buf0[2560 + i];
+
+                        m16[n + i] = m;
+                    }
+                    break;
+                case AV_SAMPLE_FMT_U8P:
+                    for (int i = 0; i < ret; i++) {
+                        int m = s->ch[ch].buf0[2560 + i];
+
+                        m8[n + i] = m + 0x7f;
+                    }
+                    break;
+                default:
+                    return AVERROR_INVALIDDATA;
                 }
-                break;
-            default:
-                return AVERROR_INVALIDDATA;
             }
 
             n += ret;
@@ -966,7 +977,7 @@ static av_cold int rka_decode_close(AVCodecContext *avctx)
 
 const FFCodec ff_rka_decoder = {
     .p.name         = "rka",
-    CODEC_LONG_NAME("RKA (RK Audio"),
+    CODEC_LONG_NAME("RKA (RK Audio)"),
     .p.type         = AVMEDIA_TYPE_AUDIO,
     .p.id           = AV_CODEC_ID_RKA,
     .priv_data_size = sizeof(RKAContext),
