@@ -1149,8 +1149,9 @@ static int64_t mxf_write_cdci_common(AVFormatContext *s, AVStream *st, const UID
 {
     MXFStreamContext *sc = st->priv_data;
     AVIOContext *pb = s->pb;
-    int stored_width = 0;
-    int stored_height = (st->codecpar->height+15)/16*16;
+    int stored_width = st->codecpar->width;
+    int stored_height = st->codecpar->height;
+    int display_width;
     int display_height;
     int f1, f2;
     const MXFCodecUL *color_primaries_ul;
@@ -1169,12 +1170,24 @@ static int64_t mxf_write_cdci_common(AVFormatContext *s, AVStream *st, const UID
         else if (st->codecpar->height == 720)
             stored_width = 1280;
     }
-    if (!stored_width)
-        stored_width = (st->codecpar->width+15)/16*16;
+    display_width = stored_width;
 
+    switch (st->codecpar->codec_id) {
+    case AV_CODEC_ID_MPEG2VIDEO:
+    case AV_CODEC_ID_H264:
+        //Based on 16x16 macroblocks
+        stored_width = (stored_width+15)/16*16;
+        stored_height = (stored_height+15)/16*16;
+        break;
+    default:
+        break;
+    }
+
+    //Stored width
     mxf_write_local_tag(s, 4, 0x3203);
     avio_wb32(pb, stored_width);
 
+    //Stored height
     mxf_write_local_tag(s, 4, 0x3202);
     avio_wb32(pb, stored_height>>sc->interlaced);
 
@@ -1194,7 +1207,7 @@ static int64_t mxf_write_cdci_common(AVFormatContext *s, AVStream *st, const UID
 
     //Sampled width
     mxf_write_local_tag(s, 4, 0x3205);
-    avio_wb32(pb, stored_width);
+    avio_wb32(pb, display_width);
 
     //Samples height
     mxf_write_local_tag(s, 4, 0x3204);
@@ -1208,8 +1221,9 @@ static int64_t mxf_write_cdci_common(AVFormatContext *s, AVStream *st, const UID
     mxf_write_local_tag(s, 4, 0x3207);
     avio_wb32(pb, 0);
 
+    //Display width
     mxf_write_local_tag(s, 4, 0x3209);
-    avio_wb32(pb, stored_width);
+    avio_wb32(pb, display_width);
 
     if (st->codecpar->height == 608) // PAL + VBI
         display_height = 576;
@@ -1218,6 +1232,7 @@ static int64_t mxf_write_cdci_common(AVFormatContext *s, AVStream *st, const UID
     else
         display_height = st->codecpar->height;
 
+    //Display height
     mxf_write_local_tag(s, 4, 0x3208);
     avio_wb32(pb, display_height>>sc->interlaced);
 
@@ -1236,43 +1251,43 @@ static int64_t mxf_write_cdci_common(AVFormatContext *s, AVStream *st, const UID
     }
 
     if (key != mxf_rgba_descriptor_key) {
-    // component depth
-    mxf_write_local_tag(s, 4, 0x3301);
-    avio_wb32(pb, sc->component_depth);
+        // component depth
+        mxf_write_local_tag(s, 4, 0x3301);
+        avio_wb32(pb, sc->component_depth);
 
-    // horizontal subsampling
-    mxf_write_local_tag(s, 4, 0x3302);
-    avio_wb32(pb, sc->h_chroma_sub_sample);
+        // horizontal subsampling
+        mxf_write_local_tag(s, 4, 0x3302);
+        avio_wb32(pb, sc->h_chroma_sub_sample);
 
-    // vertical subsampling
-    mxf_write_local_tag(s, 4, 0x3308);
-    avio_wb32(pb, sc->v_chroma_sub_sample);
+        // vertical subsampling
+        mxf_write_local_tag(s, 4, 0x3308);
+        avio_wb32(pb, sc->v_chroma_sub_sample);
 
-    // color siting
-    mxf_write_local_tag(s, 1, 0x3303);
-    avio_w8(pb, sc->color_siting);
+        // color siting
+        mxf_write_local_tag(s, 1, 0x3303);
+        avio_w8(pb, sc->color_siting);
 
-    // Padding Bits
-    mxf_write_local_tag(s, 2, 0x3307);
-    avio_wb16(pb, 0);
+        // Padding Bits
+        mxf_write_local_tag(s, 2, 0x3307);
+        avio_wb16(pb, 0);
 
-    if (st->codecpar->color_range != AVCOL_RANGE_UNSPECIFIED) {
-        int black = 0,
-            white = (1<<sc->component_depth) - 1,
-            color = (1<<sc->component_depth);
-        if (st->codecpar->color_range == AVCOL_RANGE_MPEG) {
-            black = 1   << (sc->component_depth - 4);
-            white = 235 << (sc->component_depth - 8);
-            color = (14 << (sc->component_depth - 4)) + 1;
+        if (st->codecpar->color_range != AVCOL_RANGE_UNSPECIFIED) {
+            int black = 0,
+                white = (1<<sc->component_depth) - 1,
+                color = (1<<sc->component_depth);
+            if (st->codecpar->color_range == AVCOL_RANGE_MPEG) {
+                black = 1   << (sc->component_depth - 4);
+                white = 235 << (sc->component_depth - 8);
+                color = (14 << (sc->component_depth - 4)) + 1;
+            }
+            mxf_write_local_tag(s, 4, 0x3304);
+            avio_wb32(pb, black);
+            mxf_write_local_tag(s, 4, 0x3305);
+            avio_wb32(pb, white);
+            mxf_write_local_tag(s, 4, 0x3306);
+            avio_wb32(pb, color);
         }
-        mxf_write_local_tag(s, 4, 0x3304);
-        avio_wb32(pb, black);
-        mxf_write_local_tag(s, 4, 0x3305);
-        avio_wb32(pb, white);
-        mxf_write_local_tag(s, 4, 0x3306);
-        avio_wb32(pb, color);
     }
-    } // if (key != mxf_rgba_descriptor_key)
 
     if (sc->signal_standard) {
         mxf_write_local_tag(s, 1, 0x3215);
