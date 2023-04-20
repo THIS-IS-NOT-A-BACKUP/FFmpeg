@@ -325,6 +325,8 @@ int enc_open(OutputStream *ost, AVFrame *frame)
             return ret;
     }
 
+    av_dict_set(&ost->encoder_opts, "flags", "+frame_duration", AV_DICT_MULTIKEY);
+
     ret = hw_device_setup_for_encode(ost);
     if (ret < 0) {
         av_log(ost, AV_LOG_ERROR,
@@ -811,6 +813,8 @@ static void do_audio_out(OutputFile *of, OutputStream *ost,
             av_rescale_q(start_time, AV_TIME_BASE_Q,   enc->time_base);
     }
     frame->time_base = enc->time_base;
+    frame->duration  = av_rescale_q(frame->nb_samples, (AVRational){1, frame->sample_rate},
+                                    enc->time_base);
 
     if (!check_recording_time(ost, frame->pts, frame->time_base))
         return;

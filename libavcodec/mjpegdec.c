@@ -3013,6 +3013,8 @@ static void smv_process_frame(AVCodecContext *avctx, AVFrame *frame)
     frame->crop_top    = FFMIN(s->smv_next_frame * avctx->height, frame->height);
     frame->crop_bottom = frame->height - (s->smv_next_frame + 1) * avctx->height;
 
+    if (s->smv_frame->pts != AV_NOPTS_VALUE)
+        s->smv_frame->pts += s->smv_frame->duration;
     s->smv_next_frame = (s->smv_next_frame + 1) % s->smv_frames_per_jpeg;
 
     if (s->smv_next_frame == 0)
@@ -3023,26 +3025,20 @@ static int smvjpeg_receive_frame(AVCodecContext *avctx, AVFrame *frame)
 {
     MJpegDecodeContext *s = avctx->priv_data;
     AVPacket *const pkt = avctx->internal->in_pkt;
-    int64_t pkt_dts;
     int got_frame = 0;
     int ret;
 
-    if (s->smv_next_frame > 0) {
-        av_assert0(s->smv_frame->buf[0]);
-        ret = av_frame_ref(frame, s->smv_frame);
-        if (ret < 0)
-            return ret;
-
-        smv_process_frame(avctx, frame);
-        return 0;
-    }
+    if (s->smv_next_frame > 0)
+        goto return_frame;
 
     ret = ff_decode_get_packet(avctx, pkt);
     if (ret < 0)
         return ret;
 
-    ret = ff_mjpeg_decode_frame(avctx, frame, &got_frame, pkt);
-    pkt_dts = pkt->dts;
+    av_frame_unref(s->smv_frame);
+
+    ret = ff_mjpeg_decode_frame(avctx, s->smv_frame, &got_frame, pkt);
+    s->smv_frame->pkt_dts = pkt->dts;
     av_packet_unref(pkt);
     if (ret < 0)
         return ret;
@@ -3050,11 +3046,12 @@ static int smvjpeg_receive_frame(AVCodecContext *avctx, AVFrame *frame)
     if (!got_frame)
         return AVERROR(EAGAIN);
 
-    frame->pkt_dts = pkt_dts;
+    // packet duration covers all the frames in the packet
+    s->smv_frame->duration /= s->smv_frames_per_jpeg;
 
-    av_assert0(frame->buf[0]);
-    av_frame_unref(s->smv_frame);
-    ret = av_frame_ref(s->smv_frame, frame);
+return_frame:
+    av_assert0(s->smv_frame->buf[0]);
+    ret = av_frame_ref(frame, s->smv_frame);
     if (ret < 0)
         return ret;
 
