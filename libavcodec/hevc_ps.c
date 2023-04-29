@@ -1478,33 +1478,33 @@ static int pps_range_extensions(GetBitContext *gb, AVCodecContext *avctx,
                                 HEVCPPS *pps, HEVCSPS *sps)
 {
     if (pps->transform_skip_enabled_flag) {
-        pps->log2_max_transform_skip_block_size = get_ue_golomb_long(gb) + 2;
+        pps->log2_max_transform_skip_block_size = get_ue_golomb_31(gb) + 2;
     }
     pps->cross_component_prediction_enabled_flag = get_bits1(gb);
     pps->chroma_qp_offset_list_enabled_flag = get_bits1(gb);
     if (pps->chroma_qp_offset_list_enabled_flag) {
-        pps->diff_cu_chroma_qp_offset_depth = get_ue_golomb_long(gb);
-        pps->chroma_qp_offset_list_len_minus1 = get_ue_golomb_long(gb);
+        pps->diff_cu_chroma_qp_offset_depth = get_ue_golomb_31(gb);
+        pps->chroma_qp_offset_list_len_minus1 = get_ue_golomb_31(gb);
         if (pps->chroma_qp_offset_list_len_minus1 > 5) {
             av_log(avctx, AV_LOG_ERROR,
                    "chroma_qp_offset_list_len_minus1 shall be in the range [0, 5].\n");
             return AVERROR_INVALIDDATA;
         }
         for (int i = 0; i <= pps->chroma_qp_offset_list_len_minus1; i++) {
-            pps->cb_qp_offset_list[i] = get_se_golomb_long(gb);
+            pps->cb_qp_offset_list[i] = get_se_golomb(gb);
             if (pps->cb_qp_offset_list[i]) {
                 av_log(avctx, AV_LOG_WARNING,
                        "cb_qp_offset_list not tested yet.\n");
             }
-            pps->cr_qp_offset_list[i] = get_se_golomb_long(gb);
+            pps->cr_qp_offset_list[i] = get_se_golomb(gb);
             if (pps->cr_qp_offset_list[i]) {
                 av_log(avctx, AV_LOG_WARNING,
                        "cb_qp_offset_list not tested yet.\n");
             }
         }
     }
-    pps->log2_sao_offset_scale_luma = get_ue_golomb_long(gb);
-    pps->log2_sao_offset_scale_chroma = get_ue_golomb_long(gb);
+    pps->log2_sao_offset_scale_luma = get_ue_golomb_31(gb);
+    pps->log2_sao_offset_scale_chroma = get_ue_golomb_31(gb);
 
     if (   pps->log2_sao_offset_scale_luma   > FFMAX(sps->bit_depth        - 10, 0)
         || pps->log2_sao_offset_scale_chroma > FFMAX(sps->bit_depth_chroma - 10, 0)
@@ -1538,17 +1538,24 @@ static int pps_scc_extension(GetBitContext *gb, AVCodecContext *avctx,
     }
 
     if (pps->pps_palette_predictor_initializers_present_flag = get_bits1(gb)) {
-        if ((pps->pps_num_palette_predictor_initializers = get_ue_golomb_long(gb)) > 0) {
+        pps->pps_num_palette_predictor_initializers = get_ue_golomb(gb);
+        if (pps->pps_num_palette_predictor_initializers > 0) {
+            if (pps->pps_num_palette_predictor_initializers > HEVC_MAX_PALETTE_PREDICTOR_SIZE) {
+                av_log(avctx, AV_LOG_ERROR,
+                       "pps_num_palette_predictor_initializers out of range: %u\n",
+                       pps->pps_num_palette_predictor_initializers);
+                return AVERROR_INVALIDDATA;
+            }
             pps->monochrome_palette_flag = get_bits1(gb);
-            pps->luma_bit_depth_entry_minus8 = get_ue_golomb_long(gb);
+            pps->luma_bit_depth_entry = get_ue_golomb_31(gb) + 8;
             if (!pps->monochrome_palette_flag)
-                pps->chroma_bit_depth_entry_minus8 = get_ue_golomb_long(gb);
+                pps->chroma_bit_depth_entry = get_ue_golomb_31(gb) + 8;
             num_comps = pps->monochrome_palette_flag ? 1 : 3;
-            for (int comp = 0; comp < num_comps; comp++)
+            for (int comp = 0; comp < num_comps; comp++) {
+                int bit_depth = !comp ? pps->luma_bit_depth_entry : pps->chroma_bit_depth_entry;
                 for (int i = 0; i < pps->pps_num_palette_predictor_initializers; i++)
-                    pps->pps_palette_predictor_initializer[comp][i] =
-                        get_bits(gb, 8 + (!comp ? pps->luma_bit_depth_entry_minus8 :
-                                          pps->chroma_bit_depth_entry_minus8));
+                    pps->pps_palette_predictor_initializer[comp][i] = get_bits(gb, bit_depth);
+            }
         }
     }
 
