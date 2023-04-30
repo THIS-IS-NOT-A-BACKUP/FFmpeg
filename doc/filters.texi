@@ -1107,6 +1107,20 @@ Stop picking threshold value.
 @item on
 Start picking threshold value.
 @end table
+
+@item precision
+Set which precision to use when processing samples.
+
+@table @option
+@item auto
+Auto pick internal sample format depending on other filters.
+
+@item float
+Always use single-floating point precision sample format.
+
+@item double
+Always use double-floating point precision sample format.
+@end table
 @end table
 
 @subsection Commands
@@ -2960,6 +2974,44 @@ Take the first 5 seconds of a clip, and reverse it.
 atrim=end=5,areverse
 @end example
 @end itemize
+
+@section arls
+Apply Recursive Least Squares algorithm to the first audio stream using the second audio stream.
+
+This adaptive filter is used to mimic a desired filter by recursively finding the filter coefficients that
+relate to producing the minimal weighted linear least squares cost function of the error signal (difference
+between the desired, 2nd input audio stream and the actual signal, the 1st input audio stream).
+
+A description of the accepted options follows.
+
+@table @option
+@item order
+Set the filter order.
+
+@item lambda
+Set the forgetting factor.
+
+@item delta
+Set the coefficient to initialize internal covariance matrix.
+
+@item out_mode
+Set the filter output samples. It accepts the following values:
+@table @option
+@item i
+Pass the 1st input.
+
+@item d
+Pass the 2nd input.
+
+@item o
+Pass filtered samples.
+
+@item n
+Pass difference between desired and filtered samples.
+
+Default value is @var{o}.
+@end table
+@end table
 
 @section arnndn
 
