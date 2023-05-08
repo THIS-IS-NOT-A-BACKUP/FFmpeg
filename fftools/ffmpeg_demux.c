@@ -318,7 +318,8 @@ static void *input_thread(void *arg)
 
         /* the following test is needed in case new streams appear
            dynamically in stream : we ignore them */
-        if (pkt->stream_index >= f->nb_streams) {
+        if (pkt->stream_index >= f->nb_streams ||
+            f->streams[pkt->stream_index]->discard) {
             report_new_stream(d, pkt);
             av_packet_unref(pkt);
             continue;
@@ -586,10 +587,17 @@ void ist_output_add(InputStream *ist, OutputStream *ost)
 
 void ist_filter_add(InputStream *ist, InputFilter *ifilter, int is_simple)
 {
+    int ret;
+
     ist_use(ist, is_simple ? DECODING_FOR_OST : DECODING_FOR_FILTER);
 
     GROW_ARRAY(ist->filters, ist->nb_filters);
     ist->filters[ist->nb_filters - 1] = ifilter;
+
+    // initialize fallback parameters for filtering
+    ret = ifilter_parameters_from_dec(ifilter, ist->dec_ctx);
+    if (ret < 0)
+        report_and_exit(ret);
 }
 
 static const AVCodec *choose_decoder(const OptionsContext *o, AVFormatContext *s, AVStream *st,
