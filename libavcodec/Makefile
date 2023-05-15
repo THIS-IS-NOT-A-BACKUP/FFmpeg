@@ -1086,7 +1086,7 @@ OBJS-$(CONFIG_LIBARIBCAPTION_DECODER)     += libaribcaption.o ass.o
 OBJS-$(CONFIG_LIBCELT_DECODER)            += libcelt_dec.o
 OBJS-$(CONFIG_LIBCODEC2_DECODER)          += libcodec2.o
 OBJS-$(CONFIG_LIBCODEC2_ENCODER)          += libcodec2.o
-OBJS-$(CONFIG_LIBDAV1D_DECODER)           += libdav1d.o
+OBJS-$(CONFIG_LIBDAV1D_DECODER)           += libdav1d.o av1_parse.o
 OBJS-$(CONFIG_LIBDAVS2_DECODER)           += libdavs2.o
 OBJS-$(CONFIG_LIBFDK_AAC_DECODER)         += libfdk-aacdec.o
 OBJS-$(CONFIG_LIBFDK_AAC_ENCODER)         += libfdk-aacenc.o
@@ -1143,7 +1143,7 @@ OBJS-$(CONFIG_AC3_PARSER)              += aac_ac3_parser.o ac3tab.o \
                                           ac3_channel_layout_tab.o
 OBJS-$(CONFIG_ADX_PARSER)              += adx_parser.o
 OBJS-$(CONFIG_AMR_PARSER)              += amr_parser.o
-OBJS-$(CONFIG_AV1_PARSER)              += av1_parser.o
+OBJS-$(CONFIG_AV1_PARSER)              += av1_parser.o av1_parse.o
 OBJS-$(CONFIG_AVS2_PARSER)             += avs2.o avs2_parser.o
 OBJS-$(CONFIG_AVS3_PARSER)             += avs3_parser.o
 OBJS-$(CONFIG_BMP_PARSER)              += bmp_parser.o
