@@ -63,7 +63,11 @@ typedef OSStatus (*getParameterSetAtIndex)(CMFormatDescriptionRef videoDesc,
                                            size_t *parameterSetCountOut,
                                            int *NALUnitHeaderLengthOut);
 
-//These symbols may not be present
+/*
+ * Keys that are not present in all versions of VideoToolbox need to be
+ * accessed from compat_keys, or it will cause compiler errors when compiling
+ * for older OS versions.
+ */
 static struct{
     CFStringRef kCVImageBufferColorPrimaries_ITU_R_2020;
     CFStringRef kCVImageBufferTransferFunction_ITU_R_2020;
@@ -105,6 +109,7 @@ static struct{
 
     CFStringRef kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder;
     CFStringRef kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder;
+    CFStringRef kVTVideoEncoderSpecification_EnableLowLatencyRateControl;
 
     getParameterSetAtIndex CMVideoFormatDescriptionGetHEVCParameterSetAtIndex;
 } compat_keys;
@@ -171,6 +176,8 @@ static void loadVTEncSymbols(void){
             "EnableHardwareAcceleratedVideoEncoder");
     GET_SYM(kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder,
             "RequireHardwareAcceleratedVideoEncoder");
+    GET_SYM(kVTVideoEncoderSpecification_EnableLowLatencyRateControl,
+                "EnableLowLatencyRateControl");
 }
 
 typedef enum VT_H264Profile {
@@ -1438,6 +1445,17 @@ static int vtenc_create_encoder(AVCodecContext   *avctx,
 
         if (status) {
             av_log(avctx, AV_LOG_ERROR, "Error setting realtime property: %d\n", status);
+        }
+    }
+
+    // low-latency mode: eliminate frame reordering, follow a one-in-one-out encoding mode
+    if ((avctx->flags & AV_CODEC_FLAG_LOW_DELAY) && avctx->codec_id == AV_CODEC_ID_H264) {
+        status = VTSessionSetProperty(vtctx->session,
+                                      compat_keys.kVTVideoEncoderSpecification_EnableLowLatencyRateControl,
+                                      kCFBooleanTrue);
+
+        if (status) {
+            av_log(avctx, AV_LOG_ERROR, "Error setting low latency property: %d\n", status);
         }
     }
 
