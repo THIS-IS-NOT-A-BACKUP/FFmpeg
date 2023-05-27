@@ -36,6 +36,7 @@ enum SilenceDetect {
     D_AVG,
     D_RMS,
     D_PEAK,
+    D_MEDIAN,
     D_NB
 };
 
@@ -114,24 +115,26 @@ typedef struct SilenceRemoveContext {
 
 #define OFFSET(x) offsetof(SilenceRemoveContext, x)
 #define AF AV_OPT_FLAG_FILTERING_PARAM|AV_OPT_FLAG_AUDIO_PARAM
+#define AFR AV_OPT_FLAG_FILTERING_PARAM|AV_OPT_FLAG_AUDIO_PARAM|AV_OPT_FLAG_RUNTIME_PARAM
 
 static const AVOption silenceremove_options[] = {
     { "start_periods",   "set periods of silence parts to skip from start",    OFFSET(start_periods),       AV_OPT_TYPE_INT,      {.i64=0},     0,      9000, AF },
     { "start_duration",  "set start duration of non-silence part",             OFFSET(start_duration_opt),  AV_OPT_TYPE_DURATION, {.i64=0},     0, INT32_MAX, AF },
-    { "start_threshold", "set threshold for start silence detection",          OFFSET(start_threshold),     AV_OPT_TYPE_DOUBLE,   {.dbl=0},     0,   DBL_MAX, AF },
+    { "start_threshold", "set threshold for start silence detection",          OFFSET(start_threshold),     AV_OPT_TYPE_DOUBLE,   {.dbl=0},     0,   DBL_MAX, AFR },
     { "start_silence",   "set start duration of silence part to keep",         OFFSET(start_silence_opt),   AV_OPT_TYPE_DURATION, {.i64=0},     0, INT32_MAX, AF },
-    { "start_mode",      "set which channel will trigger trimming from start", OFFSET(start_mode),          AV_OPT_TYPE_INT,      {.i64=T_ANY}, T_ANY, T_ALL, AF, "mode" },
-    {   "any",           0,                                                    0,                           AV_OPT_TYPE_CONST,    {.i64=T_ANY}, 0,         0, AF, "mode" },
-    {   "all",           0,                                                    0,                           AV_OPT_TYPE_CONST,    {.i64=T_ALL}, 0,         0, AF, "mode" },
+    { "start_mode",      "set which channel will trigger trimming from start", OFFSET(start_mode),          AV_OPT_TYPE_INT,      {.i64=T_ANY}, T_ANY, T_ALL, AFR, "mode" },
+    {   "any",           0,                                                    0,                           AV_OPT_TYPE_CONST,    {.i64=T_ANY}, 0,         0, AFR, "mode" },
+    {   "all",           0,                                                    0,                           AV_OPT_TYPE_CONST,    {.i64=T_ALL}, 0,         0, AFR, "mode" },
     { "stop_periods",    "set periods of silence parts to skip from end",      OFFSET(stop_periods),        AV_OPT_TYPE_INT,      {.i64=0}, -9000,      9000, AF },
     { "stop_duration",   "set stop duration of silence part",                  OFFSET(stop_duration_opt),   AV_OPT_TYPE_DURATION, {.i64=0},     0, INT32_MAX, AF },
-    { "stop_threshold",  "set threshold for stop silence detection",           OFFSET(stop_threshold),      AV_OPT_TYPE_DOUBLE,   {.dbl=0},     0,   DBL_MAX, AF },
+    { "stop_threshold",  "set threshold for stop silence detection",           OFFSET(stop_threshold),      AV_OPT_TYPE_DOUBLE,   {.dbl=0},     0,   DBL_MAX, AFR },
     { "stop_silence",    "set stop duration of silence part to keep",          OFFSET(stop_silence_opt),    AV_OPT_TYPE_DURATION, {.i64=0},     0, INT32_MAX, AF },
-    { "stop_mode",       "set which channel will trigger trimming from end",   OFFSET(stop_mode),           AV_OPT_TYPE_INT,      {.i64=T_ANY}, T_ANY, T_ALL, AF, "mode" },
+    { "stop_mode",       "set which channel will trigger trimming from end",   OFFSET(stop_mode),           AV_OPT_TYPE_INT,      {.i64=T_ALL}, T_ANY, T_ALL, AFR, "mode" },
     { "detection",       "set how silence is detected",                        OFFSET(detection),           AV_OPT_TYPE_INT,      {.i64=D_RMS}, 0,    D_NB-1, AF, "detection" },
     {   "avg",           "use mean absolute values of samples",                0,                           AV_OPT_TYPE_CONST,    {.i64=D_AVG}, 0,         0, AF, "detection" },
     {   "rms",           "use root mean squared values of samples",            0,                           AV_OPT_TYPE_CONST,    {.i64=D_RMS}, 0,         0, AF, "detection" },
     {   "peak",          "use max absolute values of samples",                 0,                           AV_OPT_TYPE_CONST,    {.i64=D_PEAK},0,         0, AF, "detection" },
+    {   "median",        "use median of absolute values of samples",           0,                           AV_OPT_TYPE_CONST,    {.i64=D_MEDIAN},0,       0, AF, "detection" },
     { "window",          "set duration of window for silence detection",       OFFSET(window_duration_opt), AV_OPT_TYPE_DURATION, {.i64=20000}, 0, 100000000, AF },
     { NULL }
 };
@@ -234,6 +237,10 @@ static int config_output(AVFilterLink *outlink)
         s->compute_flt = compute_avg_flt;
         s->compute_dbl = compute_avg_dbl;
         break;
+    case D_MEDIAN:
+        s->compute_flt = compute_median_flt;
+        s->compute_dbl = compute_median_dbl;
+        break;
     case D_PEAK:
         s->compute_flt = compute_peak_flt;
         s->compute_dbl = compute_peak_dbl;
@@ -287,15 +294,19 @@ static int filter_frame(AVFilterLink *outlink, AVFrame *in)
         srcf = (const float *)in->data[0];
         dstf = (float *)out->data[0];
         if (s->start_periods > 0 && s->stop_periods > 0) {
-            for (int n = 0; n < in_nb_samples; n++) {
-                filter_start_flt(ctx, srcf + n * nb_channels,
-                                 dstf, &out_nb_samples,
-                                 nb_channels);
+            const float *src = srcf;
+            if (s->start_found_periods >= 0) {
+                for (int n = 0; n < in_nb_samples; n++) {
+                    filter_start_flt(ctx, src + n * nb_channels,
+                                     dstf, &out_nb_samples,
+                                     nb_channels);
+                }
+                in_nb_samples = out_nb_samples;
+                out_nb_samples = 0;
+                src = dstf;
             }
-            in_nb_samples = out_nb_samples;
-            out_nb_samples = 0;
             for (int n = 0; n < in_nb_samples; n++) {
-                filter_stop_flt(ctx, dstf + n * nb_channels,
+                filter_stop_flt(ctx, src + n * nb_channels,
                                 dstf, &out_nb_samples,
                                 nb_channels);
             }
@@ -317,15 +328,19 @@ static int filter_frame(AVFilterLink *outlink, AVFrame *in)
         srcd = (const double *)in->data[0];
         dstd = (double *)out->data[0];
         if (s->start_periods > 0 && s->stop_periods > 0) {
-            for (int n = 0; n < in_nb_samples; n++) {
-                filter_start_dbl(ctx, srcd + n * nb_channels,
-                                 dstd, &out_nb_samples,
-                                 nb_channels);
+            const double *src = srcd;
+            if (s->start_found_periods >= 0) {
+                for (int n = 0; n < in_nb_samples; n++) {
+                    filter_start_dbl(ctx, src + n * nb_channels,
+                                     dstd, &out_nb_samples,
+                                     nb_channels);
+                }
+                in_nb_samples = out_nb_samples;
+                out_nb_samples = 0;
+                src = dstd;
             }
-            in_nb_samples = out_nb_samples;
-            out_nb_samples = 0;
             for (int n = 0; n < in_nb_samples; n++) {
-                filter_stop_dbl(ctx, dstd + n * nb_channels,
+                filter_stop_dbl(ctx, src + n * nb_channels,
                                 dstd, &out_nb_samples,
                                 nb_channels);
             }
@@ -434,4 +449,6 @@ const AVFilter ff_af_silenceremove = {
     FILTER_OUTPUTS(silenceremove_outputs),
     FILTER_SAMPLEFMTS(AV_SAMPLE_FMT_FLT,
                       AV_SAMPLE_FMT_DBL),
+    .process_command = ff_filter_process_command,
+    .flags           = AVFILTER_FLAG_SUPPORT_TIMELINE_INTERNAL,
 };

@@ -22,6 +22,7 @@
 #undef SAMPLE_FORMAT
 #undef SQRT
 #undef ZERO
+#undef ONE
 #if DEPTH == 32
 #define SAMPLE_FORMAT flt
 #define SQRT sqrtf
@@ -29,6 +30,7 @@
 #define FABS fabsf
 #define ftype float
 #define ZERO 0.f
+#define ONE 1.f
 #else
 #define SAMPLE_FORMAT dbl
 #define SQRT sqrt
@@ -36,6 +38,7 @@
 #define FABS fabs
 #define ftype double
 #define ZERO 0.0
+#define ONE 1.0
 #endif
 
 #define fn3(a,b)   a##_##b
@@ -111,39 +114,117 @@ static ftype fn(compute_avg)(ftype *cache, ftype sample, ftype wsample,
     return r / window_size;
 }
 
-static ftype fn(compute_peak)(ftype *peak, ftype sample, ftype wsample,
-                              int size, int *ffront, int *bback)
+static ftype fn(compute_median)(ftype *peak, ftype sample, ftype wsample,
+                                int size, int *ffront, int *bback)
 {
     ftype r, abs_sample = FABS(sample);
     int front = *ffront;
     int back = *bback;
+    int empty = front == back && peak[front] == -ONE;
+    int idx;
 
-    if (front != back && abs_sample > peak[front]) {
-        while (front != back) {
+    if (!empty && FABS(wsample) == peak[front]) {
+        peak[front] = -ONE;
+        if (back != front) {
+            front--;
+            if (front < 0)
+                front = size - 1;
+        }
+        empty = front == back;
+    }
+
+    if (!empty && abs_sample > peak[front]) {
+        while (1) {
+            peak[front] = -ONE;
+            if (back == front) {
+                empty = 1;
+                break;
+            }
             front--;
             if (front < 0)
                 front = size - 1;
         }
     }
 
-    while (front != back && abs_sample > peak[back]) {
+    while (!empty && abs_sample > peak[back]) {
+        peak[back] = -ONE;
+        if (back == front) {
+            empty = 1;
+            break;
+        }
         back++;
         if (back >= size)
             back = 0;
     }
 
-    if (front != back && FABS(wsample) == peak[front]) {
-        front--;
-        if (front < 0)
-            front = size - 1;
+    if (!empty) {
+        back--;
+        if (back < 0)
+            back = size - 1;
     }
 
-    back--;
-    if (back < 0)
-        back = size - 1;
-    av_assert2(back != front);
     peak[back] = abs_sample;
+    idx = (back <= front) ? back + (front - back + 1) / 2 : back + (size + front - back + 1) / 2;
+    if (idx >= size)
+        idx -= size;
+    av_assert2(idx >= 0 && idx < size);
+    r = peak[idx];
 
+    *ffront = front;
+    *bback = back;
+
+    return r;
+}
+
+static ftype fn(compute_peak)(ftype *peak, ftype sample, ftype wsample,
+                              int size, int *ffront, int *bback)
+{
+    ftype r, abs_sample = FABS(sample);
+    int front = *ffront;
+    int back = *bback;
+    int empty = front == back && peak[front] == ZERO;
+
+    if (!empty && FABS(wsample) == peak[front]) {
+        peak[front] = ZERO;
+        if (back != front) {
+            front--;
+            if (front < 0)
+                front = size - 1;
+        }
+        empty = front == back;
+    }
+
+    if (!empty && abs_sample >= peak[front]) {
+        while (1) {
+            peak[front] = ZERO;
+            if (back == front) {
+                empty = 1;
+                break;
+            }
+            front--;
+            if (front < 0)
+                front = size - 1;
+        }
+    }
+
+    while (!empty && abs_sample >= peak[back]) {
+        peak[back] = ZERO;
+        if (back == front) {
+            empty = 1;
+            break;
+        }
+        back++;
+        if (back >= size)
+            back = 0;
+    }
+
+    if (!empty) {
+        back--;
+        if (back < 0)
+            back = size - 1;
+    }
+
+    peak[back] = abs_sample;
     r = peak[front];
 
     *ffront = front;
@@ -200,7 +281,7 @@ static void fn(filter_start)(AVFilterContext *ctx,
     if (s->start_found_periods < 0)
         goto skip;
 
-    if (s->detection != D_PEAK)
+    if (s->detection != D_PEAK && s->detection != D_MEDIAN)
         window_size = s->start_window_size;
 
     for (int ch = 0; ch < nb_channels; ch++) {
@@ -237,9 +318,10 @@ static void fn(filter_start)(AVFilterContext *ctx,
     if (s->start_sample_count > start_duration) {
         s->start_found_periods++;
         if (s->start_found_periods >= start_periods) {
-            fn(flush)(dst, start, s->start_queue_pos, nb_channels,
-                      s->start_silence_count, start_nb_samples,
-                      &out_nb_samples);
+            if (!ctx->is_disabled)
+                fn(flush)(dst, start, s->start_queue_pos, nb_channels,
+                          s->start_silence_count, start_nb_samples,
+                          &out_nb_samples);
             s->start_silence_count = 0;
             s->start_found_periods = -1;
         }
@@ -248,7 +330,7 @@ static void fn(filter_start)(AVFilterContext *ctx,
     }
 
 skip:
-    if (s->start_found_periods < 0) {
+    if (s->start_found_periods < 0 || ctx->is_disabled) {
         const int dst_pos = out_nb_samples * nb_channels;
         for (int ch = 0; ch < nb_channels; ch++)
             dst[dst_pos + ch] = start[start_pos + ch];
@@ -292,7 +374,7 @@ static void fn(filter_stop)(AVFilterContext *ctx,
                      stop_nb_samples,
                      stop_window_nb_samples);
 
-    if (s->detection != D_PEAK)
+    if (s->detection != D_PEAK && s->detection != D_MEDIAN)
         window_size = s->stop_window_size;
 
     for (int ch = 0; ch < nb_channels; ch++) {
@@ -320,11 +402,9 @@ static void fn(filter_stop)(AVFilterContext *ctx,
     if (restart && !stop_thres)
         s->stop_found_periods = 0;
 
-    if (s->stop_found_periods >= 0) {
-        if (s->found_nonsilence) {
+    if (s->stop_found_periods >= 0 || ctx->is_disabled) {
+        if (s->found_nonsilence)
             s->stop_sample_count += stop_thres;
-            s->stop_sample_count *= stop_thres;
-        }
     } else if (s->stop_silence_count > 0) {
         const int dst_pos = out_nb_samples * nb_channels;
         for (int ch = 0; ch < nb_channels; ch++)
@@ -343,7 +423,7 @@ static void fn(filter_stop)(AVFilterContext *ctx,
         s->stop_sample_count = 0;
     }
 
-    if (s->stop_found_periods >= 0) {
+    if (s->stop_found_periods >= 0 || ctx->is_disabled) {
         const int dst_pos = out_nb_samples * nb_channels;
         for (int ch = 0; ch < nb_channels; ch++)
             dst[dst_pos + ch] = stop[stop_pos + ch];
