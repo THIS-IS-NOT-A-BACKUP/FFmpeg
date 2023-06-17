@@ -24,6 +24,13 @@
 #ifndef AVCODEC_EVC_PARSE_H
 #define AVCODEC_EVC_PARSE_H
 
+#include <stdint.h>
+
+#include "libavutil/intreadwrite.h"
+#include "libavutil/log.h"
+#include "libavutil/rational.h"
+#include "evc.h"
+
 #define EVC_MAX_QP_TABLE_SIZE   58
 #define NUM_CPB                 32
 
@@ -261,7 +268,6 @@ typedef struct EVCParserContext {
     //ParseContext pc;
     EVCParserSPS *sps[EVC_MAX_SPS_COUNT];
     EVCParserPPS *pps[EVC_MAX_PPS_COUNT];
-    EVCParserSliceHeader *slice_header[EVC_MAX_PPS_COUNT];
 
     EVCParserPoc poc;
 
@@ -349,9 +355,8 @@ EVCParserSPS *ff_evc_parse_sps(EVCParserContext *ctx, const uint8_t *bs, int bs_
 // @see ISO_IEC_23094-1 (7.3.2.2 SPS RBSP syntax)
 EVCParserPPS *ff_evc_parse_pps(EVCParserContext *ctx, const uint8_t *bs, int bs_size);
 
-// @see ISO_IEC_23094-1 (7.3.2.6 Slice layer RBSP syntax)
-EVCParserSliceHeader *ff_evc_parse_slice_header(EVCParserContext *ctx, const uint8_t *bs, int bs_size);
-
 int ff_evc_parse_nal_unit(EVCParserContext *ctx, const uint8_t *buf, int buf_size, void *logctx);
+
+void ff_evc_parse_free(EVCParserContext *ctx);
 
 #endif /* AVCODEC_EVC_PARSE_H */

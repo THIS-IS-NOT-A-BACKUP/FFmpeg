@@ -71,6 +71,7 @@ static int parse_nal_units(AVCodecParserContext *s, AVCodecContext *avctx, const
 
             s->format              = ctx->format;
 
+            avctx->framerate       = ctx->framerate;
             avctx->gop_size        = ctx->gop_size;
             avctx->delay           = ctx->delay;
             avctx->profile         = ctx->profile;
@@ -201,18 +202,7 @@ static void evc_parser_close(AVCodecParserContext *s)
 {
     EVCParserContext *ctx = s->priv_data;
 
-    for(int i = 0; i < EVC_MAX_SPS_COUNT; i++) {
-        EVCParserSPS *sps = ctx->sps[i];
-        av_freep(&sps);
-    }
-
-    for(int i = 0; i < EVC_MAX_PPS_COUNT; i++) {
-        EVCParserPPS *pps = ctx->pps[i];
-        EVCParserSliceHeader *sh = ctx->slice_header[i];
-
-        av_freep(&pps);
-        av_freep(&sh);
-    }
+    ff_evc_parse_free(ctx);
 }
 
 const AVCodecParser ff_evc_parser = {

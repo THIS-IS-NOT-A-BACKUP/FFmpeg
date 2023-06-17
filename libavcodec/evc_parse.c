@@ -200,6 +200,8 @@ EVCParserSPS *ff_evc_parse_sps(EVCParserContext *ctx, const uint8_t *bs, int bs_
     }
 
     sps = ctx->sps[sps_seq_parameter_set_id];
+    memset(sps, 0, sizeof(*sps));
+
     sps->sps_seq_parameter_set_id = sps_seq_parameter_set_id;
 
     // the Baseline profile is indicated by profile_idc eqal to 0
@@ -360,12 +362,15 @@ EVCParserPPS *ff_evc_parse_pps(EVCParserContext *ctx, const uint8_t *bs, int bs_
     }
 
     pps = ctx->pps[pps_pic_parameter_set_id];
+    memset(pps, 0, sizeof(*pps));
 
     pps->pps_pic_parameter_set_id = pps_pic_parameter_set_id;
 
     pps->pps_seq_parameter_set_id = get_ue_golomb(&gb);
-    if (pps->pps_seq_parameter_set_id >= EVC_MAX_SPS_COUNT)
+    if (pps->pps_seq_parameter_set_id >= EVC_MAX_SPS_COUNT) {
+        av_freep(&ctx->pps[pps_pic_parameter_set_id]);
         return NULL;
+    }
 
     pps->num_ref_idx_default_active_minus1[0] = get_ue_golomb(&gb);
     pps->num_ref_idx_default_active_minus1[1] = get_ue_golomb(&gb);
@@ -416,39 +421,33 @@ EVCParserPPS *ff_evc_parse_pps(EVCParserContext *ctx, const uint8_t *bs, int bs_
 }
 
 // @see ISO_IEC_23094-1 (7.3.2.6 Slice layer RBSP syntax)
-EVCParserSliceHeader *ff_evc_parse_slice_header(EVCParserContext *ctx, const uint8_t *bs, int bs_size)
+static int evc_parse_slice_header(EVCParserContext *ctx, EVCParserSliceHeader *sh, const uint8_t *bs, int bs_size)
 {
     GetBitContext gb;
-    EVCParserSliceHeader *sh;
     EVCParserPPS *pps;
     EVCParserSPS *sps;
 
     int num_tiles_in_slice = 0;
     int slice_pic_parameter_set_id;
+    int ret;
 
-    if (init_get_bits8(&gb, bs, bs_size) < 0)
-        return NULL;
+    if ((ret = init_get_bits8(&gb, bs, bs_size)) < 0)
+        return ret;
 
     slice_pic_parameter_set_id = get_ue_golomb(&gb);
 
     if (slice_pic_parameter_set_id < 0 || slice_pic_parameter_set_id >= EVC_MAX_PPS_COUNT)
-        return NULL;
-
-    if(!ctx->slice_header[slice_pic_parameter_set_id]) {
-        if((ctx->slice_header[slice_pic_parameter_set_id] = av_malloc(sizeof(EVCParserSliceHeader))) == NULL)
-            return NULL;
-    }
-
-    sh = ctx->slice_header[slice_pic_parameter_set_id];
+        return AVERROR_INVALIDDATA;
 
     pps = ctx->pps[slice_pic_parameter_set_id];
     if(!pps)
-        return NULL;
+        return AVERROR_INVALIDDATA;
 
-    sps = ctx->sps[slice_pic_parameter_set_id];
+    sps = ctx->sps[pps->pps_seq_parameter_set_id];
     if(!sps)
-        return NULL;
+        return AVERROR_INVALIDDATA;
 
+    memset(sh, 0, sizeof(*sh));
     sh->slice_pic_parameter_set_id = slice_pic_parameter_set_id;
 
     if (!pps->single_tile_in_pic_flag) {
@@ -536,7 +535,7 @@ EVCParserSliceHeader *ff_evc_parse_slice_header(EVCParserContext *ctx, const uin
     // If necessary, add the missing fields to the EVCParserSliceHeader structure
     // and then extend parser implementation
 
-    return sh;
+    return 0;
 }
 
 int ff_evc_parse_nal_unit(EVCParserContext *ctx, const uint8_t *buf, int buf_size, void *logctx)
@@ -605,14 +604,13 @@ int ff_evc_parse_nal_unit(EVCParserContext *ctx, const uint8_t *buf, int buf_siz
         if (sps->profile_idc == 1) ctx->profile = FF_PROFILE_EVC_MAIN;
         else ctx->profile = FF_PROFILE_EVC_BASELINE;
 
-        if (sps->vui_parameters_present_flag) {
-            if (sps->vui_parameters.timing_info_present_flag) {
-                int64_t num = sps->vui_parameters.num_units_in_tick;
-                int64_t den = sps->vui_parameters.time_scale;
-                if (num != 0 && den != 0)
-                    av_reduce(&ctx->framerate.den, &ctx->framerate.num, num, den, 1 << 30);
-            }
-        }
+        if (sps->vui_parameters_present_flag && sps->vui_parameters.timing_info_present_flag) {
+            int64_t num = sps->vui_parameters.num_units_in_tick;
+            int64_t den = sps->vui_parameters.time_scale;
+            if (num != 0 && den != 0)
+                av_reduce(&ctx->framerate.den, &ctx->framerate.num, num, den, 1 << 30);
+        } else
+            ctx->framerate = (AVRational) { 0, 1 };
 
         bit_depth = sps->bit_depth_chroma_minus8 + 8;
         ctx->format = AV_PIX_FMT_NONE;
@@ -657,17 +655,18 @@ int ff_evc_parse_nal_unit(EVCParserContext *ctx, const uint8_t *buf, int buf_siz
         break;
     case EVC_IDR_NUT:   // Coded slice of a IDR or non-IDR picture
     case EVC_NOIDR_NUT: {
-        EVCParserSliceHeader *sh;
-        EVCParserSPS *sps;
-        int slice_pic_parameter_set_id;
+        EVCParserSliceHeader sh;
+        const EVCParserSPS *sps;
+        const EVCParserPPS *pps;
+        int ret;
 
-        sh = ff_evc_parse_slice_header(ctx, data, nalu_size);
-        if (!sh) {
+        ret = evc_parse_slice_header(ctx, &sh, data, nalu_size);
+        if (ret < 0) {
             av_log(logctx, AV_LOG_ERROR, "Slice header parsing error\n");
-            return AVERROR_INVALIDDATA;
+            return ret;
         }
 
-        switch (sh->slice_type) {
+        switch (sh.slice_type) {
         case EVC_SLICE_TYPE_B: {
             ctx->pict_type =  AV_PICTURE_TYPE_B;
             break;
@@ -689,10 +688,11 @@ int ff_evc_parse_nal_unit(EVCParserContext *ctx, const uint8_t *buf, int buf_siz
 
         // POC (picture order count of the current picture) derivation
         // @see ISO/IEC 23094-1:2020(E) 8.3.1 Decoding process for picture order count
-        slice_pic_parameter_set_id = sh->slice_pic_parameter_set_id;
-        sps = ctx->sps[slice_pic_parameter_set_id];
+        pps = ctx->pps[sh.slice_pic_parameter_set_id];
+        sps = ctx->sps[pps->pps_seq_parameter_set_id];
+        av_assert0(sps && pps);
 
-        if (sps && sps->sps_pocs_flag) {
+        if (sps->sps_pocs_flag) {
 
             int PicOrderCntMsb = 0;
             ctx->poc.prevPicOrderCntVal = ctx->poc.PicOrderCntVal;
@@ -706,20 +706,20 @@ int ff_evc_parse_nal_unit(EVCParserContext *ctx, const uint8_t *buf, int buf_siz
                 int prevPicOrderCntMsb = ctx->poc.PicOrderCntVal - prevPicOrderCntLsb;
 
 
-                if ((sh->slice_pic_order_cnt_lsb < prevPicOrderCntLsb) &&
-                    ((prevPicOrderCntLsb - sh->slice_pic_order_cnt_lsb) >= (MaxPicOrderCntLsb / 2)))
+                if ((sh.slice_pic_order_cnt_lsb < prevPicOrderCntLsb) &&
+                    ((prevPicOrderCntLsb - sh.slice_pic_order_cnt_lsb) >= (MaxPicOrderCntLsb / 2)))
 
                     PicOrderCntMsb = prevPicOrderCntMsb + MaxPicOrderCntLsb;
 
-                else if ((sh->slice_pic_order_cnt_lsb > prevPicOrderCntLsb) &&
-                         ((sh->slice_pic_order_cnt_lsb - prevPicOrderCntLsb) > (MaxPicOrderCntLsb / 2)))
+                else if ((sh.slice_pic_order_cnt_lsb > prevPicOrderCntLsb) &&
+                         ((sh.slice_pic_order_cnt_lsb - prevPicOrderCntLsb) > (MaxPicOrderCntLsb / 2)))
 
                     PicOrderCntMsb = prevPicOrderCntMsb - MaxPicOrderCntLsb;
 
                 else
                     PicOrderCntMsb = prevPicOrderCntMsb;
             }
-            ctx->poc.PicOrderCntVal = PicOrderCntMsb + sh->slice_pic_order_cnt_lsb;
+            ctx->poc.PicOrderCntVal = PicOrderCntMsb + sh.slice_pic_order_cnt_lsb;
 
         } else {
             if (nalu_type == EVC_IDR_NUT) {
@@ -765,3 +765,10 @@ int ff_evc_parse_nal_unit(EVCParserContext *ctx, const uint8_t *buf, int buf_siz
     return 0;
 }
 
+void ff_evc_parse_free(EVCParserContext *ctx) {
+    for (int i = 0; i < EVC_MAX_SPS_COUNT; i++)
+        av_freep(&ctx->sps[i]);
+
+    for (int i = 0; i < EVC_MAX_PPS_COUNT; i++)
+        av_freep(&ctx->pps[i]);
+}
