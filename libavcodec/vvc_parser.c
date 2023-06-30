@@ -22,23 +22,16 @@
 
 #include "cbs.h"
 #include "cbs_h266.h"
-#include "internal.h"
 #include "parser.h"
-#include "decode.h"
 
 #define START_CODE 0x000001 ///< start_code_prefix_one_3bytes
 #define IS_IDR(nut)   (nut == VVC_IDR_W_RADL || nut == VVC_IDR_N_LP)
 #define IS_H266_SLICE(nut) (nut <= VVC_RASL_NUT || (nut >= VVC_IDR_W_RADL && nut <= VVC_GDR_NUT))
 
 typedef struct PuInfo {
-    AVBufferRef *sps_ref;
-    AVBufferRef *pps_ref;
-    AVBufferRef *slice_ref;
-    AVBufferRef *ph_ref;
-
     const H266RawPPS *pps;
     const H266RawSPS *sps;
-    const H266RawPH *ph;
+    const H266RawPictureHeader *ph;
     const H266RawSlice *slice;
     int pic_type;
 } PuInfo;
@@ -55,7 +48,6 @@ typedef struct VVCParserContext {
 
     CodedBitstreamFragment picture_unit;
 
-    PuInfo   au_info;
     AVPacket au;
     AVPacket last_au;
 
@@ -152,41 +144,6 @@ static int get_pict_type(const CodedBitstreamFragment *pu)
     return has_p ? AV_PICTURE_TYPE_P : AV_PICTURE_TYPE_I;
 }
 
-static void pu_info_unref(PuInfo *info)
-{
-    av_buffer_unref(&info->slice_ref);
-    av_buffer_unref(&info->ph_ref);
-    av_buffer_unref(&info->pps_ref);
-    av_buffer_unref(&info->sps_ref);
-    info->slice = NULL;
-    info->ph = NULL;
-    info->pps = NULL;
-    info->sps = NULL;
-    info->pic_type = AV_PICTURE_TYPE_NONE;
-}
-
-static int pu_info_ref(PuInfo *dest, const PuInfo *src)
-{
-    pu_info_unref(dest);
-    dest->sps_ref = av_buffer_ref(src->sps_ref);
-    dest->pps_ref = av_buffer_ref(src->pps_ref);
-    if (src->ph_ref)
-        dest->ph_ref = av_buffer_ref(src->ph_ref);
-    dest->slice_ref = av_buffer_ref(src->slice_ref);
-    if (!dest->sps_ref || !dest->pps_ref || (src->ph_ref && !dest->ph_ref)
-        || !dest->slice_ref) {
-        pu_info_unref(dest);
-        return AVERROR(ENOMEM);
-    }
-
-    dest->sps = src->sps;
-    dest->pps = src->pps;
-    dest->ph = src->ph;
-    dest->slice = src->slice;
-    dest->pic_type = src->pic_type;
-    return 0;
-}
-
 static void set_parser_ctx(AVCodecParserContext *s, AVCodecContext *avctx,
                            const PuInfo *pu)
 {
@@ -198,7 +155,6 @@ static void set_parser_ctx(AVCodecParserContext *s, AVCodecContext *avctx,
     };
     const H266RawSPS *sps = pu->sps;
     const H266RawPPS *pps = pu->pps;
-    //const H266RawPH  *ph  = pu->ph;
     const H266RawNALUnitHeader *nal = &pu->slice->header.nal_unit_header;
 
     s->pict_type = pu->pic_type;
@@ -243,26 +199,12 @@ static void set_parser_ctx(AVCodecParserContext *s, AVCodecContext *avctx,
     }
 }
 
-static int set_ctx(AVCodecParserContext *s, AVCodecContext *avctx,
-                   const PuInfo *next_pu)
-{
-    VVCParserContext *ctx = s->priv_data;
-
-    int ret = pu_info_ref(&ctx->au_info, next_pu);
-    if (ret < 0)
-        return ret;
-
-    set_parser_ctx(s, avctx, &ctx->au_info);
-
-    return 0;
-}
-
 //8.3.1 Decoding process for picture order count.
 //VTM did not follow the spec, and it's much simpler than spec.
 //We follow the VTM.
 static void get_slice_poc(VVCParserContext *s, int *poc,
                           const H266RawSPS *sps,
-                          const H266RawPH *ph,
+                          const H266RawPictureHeader *ph,
                           const H266RawSliceHeader *slice, void *log_ctx)
 {
     int poc_msb, max_poc_lsb, poc_lsb;
@@ -308,7 +250,7 @@ static int is_au_start(VVCParserContext *s, const PuInfo *pu, void *log_ctx)
     AuDetector *d = &s->au_detector;
     const H266RawSPS *sps = pu->sps;
     const H266RawNALUnitHeader *nal = &pu->slice->header.nal_unit_header;
-    const H266RawPH *ph = pu->ph;
+    const H266RawPictureHeader *ph = pu->ph;
     const H266RawSlice *slice = pu->slice;
     int ret, poc, nut;
 
@@ -339,11 +281,10 @@ static int get_pu_info(PuInfo *info, const CodedBitstreamH266Context *h266,
         if (!nal)
             continue;
         if ( nal->nal_unit_type == VVC_PH_NUT ) {
-            info->ph = pu->units[i].content;
-            info->ph_ref = pu->units[i].content_ref;
+            const H266RawPH *ph = pu->units[i].content;
+            info->ph = &ph->ph_picture_header;
         } else if (IS_H266_SLICE(nal->nal_unit_type)) {
             info->slice = pu->units[i].content;
-            info->slice_ref = pu->units[i].content_ref;
             if (info->slice->header.sh_picture_header_in_slice_header_flag)
                 info->ph = &info->slice->header.sh_picture_header;
             if (!info->ph) {
@@ -367,7 +308,6 @@ static int get_pu_info(PuInfo *info, const CodedBitstreamH266Context *h266,
         ret = AVERROR_INVALIDDATA;
         goto error;
     }
-    info->pps_ref = h266->pps_ref[info->ph->ph_pic_parameter_set_id];
     info->sps = h266->sps[info->pps->pps_seq_parameter_set_id];
     if (!info->sps) {
         av_log(logctx, AV_LOG_ERROR, "SPS id %d is not avaliable.\n",
@@ -375,7 +315,6 @@ static int get_pu_info(PuInfo *info, const CodedBitstreamH266Context *h266,
         ret = AVERROR_INVALIDDATA;
         goto error;
     }
-    info->sps_ref = h266->sps_ref[info->pps->pps_seq_parameter_set_id];
     info->pic_type = get_pict_type(pu);
     return 0;
   error:
@@ -432,8 +371,7 @@ static int parse_nal_units(AVCodecParserContext *s, const uint8_t *buf,
         goto end;
     }
     if (is_au_start(ctx, &info, avctx)) {
-        if ((ret = set_ctx(s, avctx, &info)) < 0)
-            goto end;
+        set_parser_ctx(s, avctx, &info);
         av_packet_move_ref(&ctx->last_au, &ctx->au);
     } else {
         ret = 1; //not a completed au
@@ -558,11 +496,10 @@ static av_cold int vvc_parser_init(AVCodecParserContext *s)
     return ret;
 }
 
-static void vvc_parser_close(AVCodecParserContext *s)
+static av_cold void vvc_parser_close(AVCodecParserContext *s)
 {
     VVCParserContext *ctx = s->priv_data;
 
-    pu_info_unref(&ctx->au_info);
     av_packet_unref(&ctx->au);
     av_packet_unref(&ctx->last_au);
     ff_cbs_fragment_free(&ctx->picture_unit);
@@ -571,7 +508,7 @@ static void vvc_parser_close(AVCodecParserContext *s)
     av_freep(&ctx->pc.buffer);
 }
 
-AVCodecParser ff_vvc_parser = {
+const AVCodecParser ff_vvc_parser = {
     .codec_ids      = { AV_CODEC_ID_VVC },
     .priv_data_size = sizeof(VVCParserContext),
     .parser_init    = vvc_parser_init,
