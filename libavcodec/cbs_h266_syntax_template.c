@@ -1845,7 +1845,7 @@ static int FUNC(pps) (CodedBitstreamContext *ctx, RWContext *rw,
         }
         for (i = 0; i <= current->pps_num_exp_tile_rows_minus1; i++) {
             ues(pps_tile_row_height_minus1[i],
-                0, pic_height_in_ctbs_y - 1, 1, i);
+                0, pic_height_in_ctbs_y - exp_tile_height - 1, 1, i);
             exp_tile_height += current->pps_tile_row_height_minus1[i] + 1;
         }
 
@@ -2731,8 +2731,13 @@ static int FUNC(picture_header) (CodedBitstreamContext *ctx, RWContext *rw,
             ue(ph_max_mtt_hierarchy_depth_intra_slice_luma,
                0, 2 * (ctb_log2_size_y - min_cb_log2_size_y));
             if (current->ph_max_mtt_hierarchy_depth_intra_slice_luma != 0) {
+                min_qt_log2_size_intra_y =
+                    current->ph_log2_diff_min_qt_min_cb_intra_slice_luma +
+                    min_cb_log2_size_y;
                 ue(ph_log2_diff_max_bt_min_qt_intra_slice_luma,
-                   0, ctb_log2_size_y - min_qt_log2_size_intra_y);
+                   0, (sps->sps_qtbtt_dual_tree_intra_flag ?
+                       FFMIN(6, ctb_log2_size_y) :
+                       ctb_log2_size_y) - min_qt_log2_size_intra_y);
                 ue(ph_log2_diff_max_tt_min_qt_intra_slice_luma,
                    0, FFMIN(6, ctb_log2_size_y) - min_qt_log2_size_intra_y);
             } else {
