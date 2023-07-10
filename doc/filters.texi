@@ -30709,6 +30709,9 @@ Set the frequency scale used. Allowed values are:
 @item bark
 @item mel
 @item erbs
+@item sqrt
+@item cbrt
+@item qdrt
 @end table
 Default value is @code{linear}.
 
