@@ -165,7 +165,7 @@ int ff_vk_load_props(FFVulkanContext *s)
 
     vk->GetPhysicalDeviceQueueFamilyProperties2(s->hwctx->phys_dev, &s->tot_nb_qfs, s->qf_props);
 
-    if (vk->GetPhysicalDeviceCooperativeMatrixPropertiesKHR) {
+    if (s->extensions & FF_VK_EXT_COOP_MATRIX) {
         vk->GetPhysicalDeviceCooperativeMatrixPropertiesKHR(s->hwctx->phys_dev,
                                                             &s->coop_mat_props_nb, NULL);
 
@@ -1884,6 +1884,7 @@ void ff_vk_pipeline_free(FFVulkanContext *s, FFVulkanPipeline *pl)
 
     av_freep(&pl->desc_set);
     av_freep(&pl->desc_bind);
+    av_freep(&pl->bound_buffer_indices);
     av_freep(&pl->push_consts);
     pl->push_consts_num = 0;
 }
@@ -1893,6 +1894,7 @@ void ff_vk_uninit(FFVulkanContext *s)
     av_freep(&s->query_props);
     av_freep(&s->qf_props);
     av_freep(&s->video_props);
+    av_freep(&s->coop_mat_props);
 
     av_buffer_unref(&s->frames_ref);
 }
