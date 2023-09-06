@@ -1190,7 +1190,6 @@ FF_ENABLE_DEPRECATION_WARNINGS
     }
 
     x4->params.analyse.b_mb_info = x4->mb_info;
-    x4->params.analyse.b_fast_pskip = 1;
 
     // update AVCodecContext with x264 parameters
     avctx->has_b_frames = x4->params.i_bframe ?
@@ -1231,7 +1230,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
         avctx->extradata_size = p - avctx->extradata;
     }
 
-    cpb_props = ff_add_cpb_side_data(avctx);
+    cpb_props = ff_encode_add_cpb_side_data(avctx);
     if (!cpb_props)
         return AVERROR(ENOMEM);
     cpb_props->buffer_size = x4->params.rc.i_vbv_buffer_size * 1000;
