@@ -68,49 +68,33 @@ typedef struct HEVCHeaderSet {
     HEVCHeaderVPS *hvps;
 } HEVCHeaderSet;
 
-static int get_data_set_buf(FFVulkanDecodeContext *s, AVBufferRef **data_buf,
-                            int nb_vps, AVBufferRef * const vps_list[HEVC_MAX_VPS_COUNT])
+static int alloc_hevc_header_structs(FFVulkanDecodeContext *s,
+                                     int nb_vps,
+                                     AVBufferRef * const vps_list[HEVC_MAX_VPS_COUNT])
 {
     uint8_t *data_ptr;
     HEVCHeaderSet *hdr;
 
-    size_t base_size = sizeof(StdVideoH265SequenceParameterSet)*HEVC_MAX_SPS_COUNT +
-                       sizeof(HEVCHeaderSPS)*HEVC_MAX_SPS_COUNT +
-                       sizeof(StdVideoH265PictureParameterSet)*HEVC_MAX_PPS_COUNT +
-                       sizeof(HEVCHeaderPPS)*HEVC_MAX_PPS_COUNT +
-                       sizeof(StdVideoH265VideoParameterSet)*HEVC_MAX_VPS_COUNT +
-                       sizeof(HEVCHeaderVPS *);
-
-    size_t vps_size = sizeof(StdVideoH265ProfileTierLevel) +
-                      sizeof(StdVideoH265DecPicBufMgr) +
-                      sizeof(StdVideoH265HrdParameters)*HEVC_MAX_LAYER_SETS +
-                      sizeof(HEVCHeaderVPSSet *);
-
-    size_t buf_size = base_size + vps_size*nb_vps;
-
+    size_t buf_size = sizeof(HEVCHeaderSet) + nb_vps*sizeof(HEVCHeaderVPS);
     for (int i = 0; i < nb_vps; i++) {
         const HEVCVPS *vps = (const HEVCVPS *)vps_list[i]->data;
         buf_size += sizeof(HEVCHeaderVPSSet)*vps->vps_num_hrd_parameters;
     }
 
-    if (buf_size > s->tmp_pool_ele_size) {
-        av_buffer_pool_uninit(&s->tmp_pool);
-        s->tmp_pool_ele_size = 0;
-        s->tmp_pool = av_buffer_pool_init(buf_size, NULL);
-        if (!s->tmp_pool)
+    if (buf_size > s->hevc_headers_size) {
+        av_freep(&s->hevc_headers);
+        s->hevc_headers_size = 0;
+        s->hevc_headers = av_mallocz(buf_size);
+        if (!s->hevc_headers)
             return AVERROR(ENOMEM);
-        s->tmp_pool_ele_size = buf_size;
+        s->hevc_headers_size = buf_size;
     }
 
-    *data_buf = av_buffer_pool_get(s->tmp_pool);
-    if (!(*data_buf))
-        return AVERROR(ENOMEM);
-
-    /* Setup pointers */
-    data_ptr = (*data_buf)->data;
-    hdr = (HEVCHeaderSet *)data_ptr;
-    hdr->hvps = (HEVCHeaderVPS *)(data_ptr + base_size);
-    data_ptr += base_size + vps_size*nb_vps;
+    /* Setup struct pointers */
+    hdr = s->hevc_headers;
+    data_ptr = (uint8_t *)hdr;
+    hdr->hvps = (HEVCHeaderVPS *)(data_ptr + sizeof(HEVCHeaderSet));
+    data_ptr += sizeof(HEVCHeaderSet) + nb_vps*sizeof(HEVCHeaderVPS);
     for (int i = 0; i < nb_vps; i++) {
         const HEVCVPS *vps = (const HEVCVPS *)vps_list[i]->data;
         hdr->hvps[i].sls = (HEVCHeaderVPSSet *)data_ptr;
@@ -650,11 +634,9 @@ static void set_vps(const HEVCVPS *vps,
 static int vk_hevc_create_params(AVCodecContext *avctx, AVBufferRef **buf)
 {
     int err;
-    VkResult ret;
     const HEVCContext *h = avctx->priv_data;
     FFVulkanDecodeContext *dec = avctx->internal->hwaccel_priv_data;
     FFVulkanDecodeShared *ctx = (FFVulkanDecodeShared *)dec->shared_ref->data;
-    FFVulkanFunctions *vk = &ctx->s.vkfn;
 
     VkVideoDecodeH265SessionParametersAddInfoKHR h265_params_info = {
         .sType = VK_STRUCTURE_TYPE_VIDEO_DECODE_H265_SESSION_PARAMETERS_ADD_INFO_KHR,
@@ -674,22 +656,16 @@ static int vk_hevc_create_params(AVCodecContext *avctx, AVBufferRef **buf)
     };
 
     int nb_vps = 0;
-    AVBufferRef *data_set;
     HEVCHeaderSet *hdr;
-
-    AVBufferRef *tmp;
-    VkVideoSessionParametersKHR *par = av_malloc(sizeof(*par));
-    if (!par)
-        return AVERROR(ENOMEM);
 
     for (int i = 0; h->ps.vps_list[i]; i++)
         nb_vps++;
 
-    err = get_data_set_buf(dec, &data_set, nb_vps, h->ps.vps_list);
+    err = alloc_hevc_header_structs(dec, nb_vps, h->ps.vps_list);
     if (err < 0)
         return err;
 
-    hdr = (HEVCHeaderSet *)data_set->data;
+    hdr = dec->hevc_headers;
 
     h265_params_info.pStdSPSs = hdr->sps;
     h265_params_info.pStdPPSs = hdr->pps;
@@ -725,28 +701,13 @@ static int vk_hevc_create_params(AVCodecContext *avctx, AVBufferRef **buf)
     h265_params.maxStdPPSCount = h265_params_info.stdPPSCount;
     h265_params.maxStdVPSCount = h265_params_info.stdVPSCount;
 
-    /* Create session parameters */
-    ret = vk->CreateVideoSessionParametersKHR(ctx->s.hwctx->act_dev, &session_params_create,
-                                              ctx->s.hwctx->alloc, par);
-    av_buffer_unref(&data_set);
-    if (ret != VK_SUCCESS) {
-        av_log(avctx, AV_LOG_ERROR, "Unable to create Vulkan video session parameters: %s!\n",
-               ff_vk_ret2str(ret));
-        return AVERROR_EXTERNAL;
-    }
-
-    tmp = av_buffer_create((uint8_t *)par, sizeof(*par), ff_vk_decode_free_params,
-                           ctx, 0);
-    if (!tmp) {
-        ff_vk_decode_free_params(ctx, (uint8_t *)par);
-        return AVERROR(ENOMEM);
-    }
+    err = ff_vk_decode_create_params(buf, avctx, ctx, &session_params_create);
+    if (err < 0)
+        return err;
 
     av_log(avctx, AV_LOG_DEBUG, "Created frame parameters: %i SPS %i PPS %i VPS\n",
            h265_params_info.stdSPSCount, h265_params_info.stdPPSCount,
            h265_params_info.stdVPSCount);
-
-    *buf = tmp;
 
     return 0;
 }
