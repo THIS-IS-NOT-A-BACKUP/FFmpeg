@@ -421,7 +421,7 @@ static int vlc_multi_gen(VLC_MULTI_ELEM *table, const VLC *single,
     add_level(table, nb_elems, nb_codes, numbits, buf,
               0, 0, FFMIN(maxbits, numbits), 0, minbits, max, count, &info);
 
-    av_log(NULL, AV_LOG_DEBUG, "Joint: %d/%d/%d/%d/%d codes min=%ubits max=%u\n",
+    av_log(logctx, AV_LOG_DEBUG, "Joint: %d/%d/%d/%d/%d codes min=%ubits max=%u\n",
            count[0], count[1], count[2], count[3], count[4], minbits, max);
 
     return 0;
@@ -471,13 +471,17 @@ int ff_vlc_init_multi_from_lengths(VLC *vlc, VLC_MULTI *multi, int nb_bits, int 
             goto fail;
         }
     }
-    ret = vlc_common_end(vlc, nb_bits, j, buf, flags, localbuf);
+    ret = vlc_common_end(vlc, nb_bits, j, buf, flags, buf);
     if (ret < 0)
         goto fail;
-    return vlc_multi_gen(multi->table, vlc, nb_elems, j, nb_bits, buf, logctx);
+    ret = vlc_multi_gen(multi->table, vlc, nb_elems, j, nb_bits, buf, logctx);
+    if (buf != localbuf)
+        av_free(buf);
+    return ret;
 fail:
     if (buf != localbuf)
         av_free(buf);
+    ff_vlc_free_multi(multi);
     return AVERROR_INVALIDDATA;
 }
 
