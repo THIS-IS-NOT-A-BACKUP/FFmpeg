@@ -45,6 +45,7 @@ enum FrequencyScale {
     FSCALE_SQRT,
     FSCALE_CBRT,
     FSCALE_QDRT,
+    FSCALE_FM,
     NB_FSCALE
 };
 
@@ -144,6 +145,7 @@ static const AVOption showcwt_options[] = {
     {  "sqrt",    "sqrt",             0,                       AV_OPT_TYPE_CONST,{.i64=FSCALE_SQRT},   0, 0, FLAGS, "scale" },
     {  "cbrt",    "cbrt",             0,                       AV_OPT_TYPE_CONST,{.i64=FSCALE_CBRT},   0, 0, FLAGS, "scale" },
     {  "qdrt",    "qdrt",             0,                       AV_OPT_TYPE_CONST,{.i64=FSCALE_QDRT},   0, 0, FLAGS, "scale" },
+    {  "fm",      "fm",               0,                       AV_OPT_TYPE_CONST,{.i64=FSCALE_FM},     0, 0, FLAGS, "scale" },
     { "iscale", "set intensity scale", OFFSET(intensity_scale),AV_OPT_TYPE_INT,  {.i64=0},   0, NB_ISCALE-1, FLAGS, "iscale" },
     {  "linear",  "linear",           0,                       AV_OPT_TYPE_CONST,{.i64=ISCALE_LINEAR}, 0, 0, FLAGS, "iscale" },
     {  "log",     "logarithmic",      0,                       AV_OPT_TYPE_CONST,{.i64=ISCALE_LOG},    0, 0, FLAGS, "iscale" },
@@ -291,6 +293,10 @@ static float frequency_band(float *frequency_band,
         case FSCALE_QDRT:
             frequency = frequency * frequency * frequency * frequency;
             frequency_derivative *= 4.f * powf(frequency, 3.f / 4.f);
+            break;
+        case FSCALE_FM:
+            frequency = 2.f * powf(frequency, 3.f / 2.f) / 3.f;
+            frequency_derivative *= sqrtf(frequency);
             break;
         }
 
@@ -666,8 +672,9 @@ static int run_channel_cwt(AVFilterContext *ctx, void *arg, int jobnr, int nb_jo
 
         memset(isrc, 0, sizeof(*isrc) * output_padding_size);
         if (offset == 0) {
+            const unsigned *kindex = index + kernel_start;
             for (int i = 0; i < kernel_range; i++) {
-                const unsigned n = index[i + kernel_start];
+                const unsigned n = kindex[i];
 
                 isrc[n].re += dstx[i].re;
                 isrc[n].im += dstx[i].im;
@@ -788,7 +795,8 @@ static int config_output(AVFilterLink *outlink)
     AVFilterContext *ctx = outlink->src;
     AVFilterLink *inlink = ctx->inputs[0];
     ShowCWTContext *s = ctx->priv;
-    float maximum_frequency = fminf(s->maximum_frequency, inlink->sample_rate * 0.5f);
+    const float limit_frequency = inlink->sample_rate * 0.5f;
+    float maximum_frequency = fminf(s->maximum_frequency, limit_frequency);
     float minimum_frequency = s->minimum_frequency;
     float scale = 1.f, factor;
     int ret;
@@ -846,6 +854,10 @@ static int config_output(AVFilterLink *outlink)
     case FSCALE_QDRT:
         minimum_frequency = powf(minimum_frequency, 0.25f);
         maximum_frequency = powf(maximum_frequency, 0.25f);
+        break;
+    case FSCALE_FM:
+        minimum_frequency = powf(9.f * (minimum_frequency * minimum_frequency) / 4.f, 1.f / 3.f);
+        maximum_frequency = powf(9.f * (maximum_frequency * maximum_frequency) / 4.f, 1.f / 3.f);
         break;
     }
 
@@ -1236,8 +1248,11 @@ static int activate(AVFilterContext *ctx)
                 ff_filter_execute(ctx, run_channels_cwt_prepare, fin, NULL,
                                   FFMIN(s->nb_threads, s->nb_channels));
                 if (fin) {
-                    if (s->hop_index == 0)
+                    if (s->hop_index == 0) {
                         s->in_pts = fin->pts;
+                        if (s->old_pts == AV_NOPTS_VALUE)
+                            s->old_pts = av_rescale_q(s->in_pts, inlink->time_base, outlink->time_base) - 1;
+                    }
                     s->hop_index += fin->nb_samples;
                     av_frame_free(&fin);
                 } else {
