@@ -374,7 +374,7 @@ static void ffmpeg_cleanup(int ret)
 
 OutputStream *ost_iter(OutputStream *prev)
 {
-    int of_idx  = prev ? prev->file_index : 0;
+    int of_idx  = prev ? prev->file->index : 0;
     int ost_idx = prev ? prev->index + 1  : 0;
 
     for (; of_idx < nb_output_files; of_idx++) {
@@ -390,7 +390,7 @@ OutputStream *ost_iter(OutputStream *prev)
 
 InputStream *ist_iter(InputStream *prev)
 {
-    int if_idx  = prev ? prev->file_index : 0;
+    int if_idx  = prev ? prev->file->index : 0;
     int ist_idx = prev ? prev->index + 1  : 0;
 
     for (; if_idx < nb_input_files; if_idx++) {
@@ -530,7 +530,7 @@ static void print_report(int is_last_report, int64_t timer_start, int64_t cur_ti
         if (vid && ost->type == AVMEDIA_TYPE_VIDEO) {
             av_bprintf(&buf, "q=%2.1f ", q);
             av_bprintf(&buf_script, "stream_%d_%d_q=%.1f\n",
-                       ost->file_index, ost->index, q);
+                       ost->file->index, ost->index, q);
         }
         if (!vid && ost->type == AVMEDIA_TYPE_VIDEO && ost->filter) {
             float fps;
@@ -542,7 +542,7 @@ static void print_report(int is_last_report, int64_t timer_start, int64_t cur_ti
             av_bprintf(&buf_script, "frame=%"PRId64"\n", frame_number);
             av_bprintf(&buf_script, "fps=%.2f\n", fps);
             av_bprintf(&buf_script, "stream_%d_%d_q=%.1f\n",
-                       ost->file_index, ost->index, q);
+                       ost->file->index, ost->index, q);
             if (is_last_report)
                 av_bprintf(&buf, "L");
 
@@ -767,7 +767,7 @@ static void print_stream_maps(void)
         for (int j = 0; j < ist->nb_filters; j++) {
             if (!filtergraph_is_simple(ist->filters[j]->graph)) {
                 av_log(NULL, AV_LOG_INFO, "  Stream #%d:%d (%s) -> %s",
-                       ist->file_index, ist->index, ist->dec ? ist->dec->name : "?",
+                       ist->file->index, ist->index, ist->dec ? ist->dec->name : "?",
                        ist->filters[j]->name);
                 if (nb_filtergraphs > 1)
                     av_log(NULL, AV_LOG_INFO, " (graph %d)", ist->filters[j]->graph->index);
@@ -780,7 +780,7 @@ static void print_stream_maps(void)
         if (ost->attachment_filename) {
             /* an attached file */
             av_log(NULL, AV_LOG_INFO, "  File %s -> Stream #%d:%d\n",
-                   ost->attachment_filename, ost->file_index, ost->index);
+                   ost->attachment_filename, ost->file->index, ost->index);
             continue;
         }
 
@@ -790,15 +790,15 @@ static void print_stream_maps(void)
             if (nb_filtergraphs > 1)
                 av_log(NULL, AV_LOG_INFO, " (graph %d)", ost->filter->graph->index);
 
-            av_log(NULL, AV_LOG_INFO, " -> Stream #%d:%d (%s)\n", ost->file_index,
+            av_log(NULL, AV_LOG_INFO, " -> Stream #%d:%d (%s)\n", ost->file->index,
                    ost->index, ost->enc_ctx->codec->name);
             continue;
         }
 
         av_log(NULL, AV_LOG_INFO, "  Stream #%d:%d -> #%d:%d",
-               ost->ist->file_index,
+               ost->ist->file->index,
                ost->ist->index,
-               ost->file_index,
+               ost->file->index,
                ost->index);
         if (ost->enc_ctx) {
             const AVCodec *in_codec    = ost->ist->dec;
@@ -941,7 +941,7 @@ static int transcode(Scheduler *sch)
         print_report(0, timer_start, cur_time, transcode_ts);
     }
 
-    ret = sch_stop(sch);
+    ret = sch_stop(sch, &transcode_ts);
 
     /* write the trailer if needed */
     for (i = 0; i < nb_output_files; i++) {

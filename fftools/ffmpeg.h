@@ -327,8 +327,6 @@ typedef struct FilterGraph {
     const AVClass *class;
     int            index;
 
-    AVFilterGraph *graph;
-
     InputFilter   **inputs;
     int          nb_inputs;
     OutputFilter **outputs;
@@ -340,11 +338,12 @@ typedef struct Decoder Decoder;
 typedef struct InputStream {
     const AVClass *class;
 
-    int file_index;
+    /* parent source */
+    struct InputFile *file;
+
     int index;
 
     AVStream *st;
-    int discard;             /* true if stream data should be discarded */
     int user_set_discard;
     int decoding_needed;     /* non zero if the packets must be decoded in 'raw_fifo', see DECODING_FOR_* */
 #define DECODING_FOR_OST    1
@@ -359,7 +358,6 @@ typedef struct InputStream {
     Decoder *decoder;
     AVCodecContext *dec_ctx;
     const AVCodec *dec;
-    const AVCodecDescriptor *codec_desc;
 
     AVRational framerate_guessed;
 
@@ -414,7 +412,6 @@ typedef struct InputFile {
     int format_nots;
 
     AVFormatContext *ctx;
-    int eof_reached;      /* true if eof reached */
     int64_t input_ts_offset;
     int input_sync_ref;
     /**
@@ -431,7 +428,6 @@ typedef struct InputFile {
     InputStream **streams;
     int        nb_streams;
 
-    float readrate;
     int accurate_seek;
 } InputFile;
 
@@ -519,7 +515,9 @@ typedef struct OutputStream {
 
     enum AVMediaType type;
 
-    int file_index;          /* file index */
+    /* parent muxer */
+    struct OutputFile *file;
+
     int index;               /* stream index in the output file */
 
     /**
@@ -593,8 +591,6 @@ typedef struct OutputStream {
     /* packet quality factor */
     atomic_int quality;
 
-    int sq_idx_mux;
-
     EncStats enc_stats_pre;
     EncStats enc_stats_post;
 
@@ -615,8 +611,6 @@ typedef struct OutputFile {
 
     OutputStream **streams;
     int         nb_streams;
-
-    SyncQueue *sq_encode;
 
     int64_t recording_time;  ///< desired length of the resulting file in microseconds == AV_TIME_BASE units
     int64_t start_time;      ///< start time in microseconds == AV_TIME_BASE units
