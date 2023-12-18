@@ -491,6 +491,8 @@ void enc_stats_write(OutputStream *ost, EncStats *es,
         ptsi = fd->dec.pts;
     }
 
+    pthread_mutex_lock(&es->lock);
+
     for (size_t i = 0; i < es->nb_components; i++) {
         const EncStatsComponent *c = &es->components[i];
 
@@ -520,6 +522,8 @@ void enc_stats_write(OutputStream *ost, EncStats *es,
             case ENC_STATS_DTS:         avio_printf(io, "%"PRId64,  pkt->dts);                      continue;
             case ENC_STATS_DTS_TIME:    avio_printf(io, "%g",       pkt->dts * av_q2d(tb));         continue;
             case ENC_STATS_PKT_SIZE:    avio_printf(io, "%d",       pkt->size);                     continue;
+            case ENC_STATS_KEYFRAME:    avio_write(io, (pkt->flags & AV_PKT_FLAG_KEY) ?
+                                                       "K" : "N", 1);                               continue;
             case ENC_STATS_BITRATE: {
                 double duration = FFMAX(pkt->duration, 1) * av_q2d(tb);
                 avio_printf(io, "%g",  8.0 * pkt->size / duration);
@@ -536,6 +540,8 @@ void enc_stats_write(OutputStream *ost, EncStats *es,
     }
     avio_w8(io, '\n');
     avio_flush(io);
+
+    pthread_mutex_unlock(&es->lock);
 }
 
 static inline double psnr(double d)

@@ -288,9 +288,9 @@ static int enc_stats_init(OutputStream *ost, EncStats *es, int pre,
     static const struct {
         enum EncStatsType  type;
         const char        *str;
-        int                pre_only:1;
-        int                post_only:1;
-        int                need_input_data:1;
+        unsigned           pre_only:1;
+        unsigned           post_only:1;
+        unsigned           need_input_data:1;
     } fmt_specs[] = {
         { ENC_STATS_FILE_IDX,       "fidx"                      },
         { ENC_STATS_STREAM_IDX,     "sidx"                      },
@@ -309,6 +309,7 @@ static int enc_stats_init(OutputStream *ost, EncStats *es, int pre,
         { ENC_STATS_PKT_SIZE,       "size",     0, 1            },
         { ENC_STATS_BITRATE,        "br",       0, 1            },
         { ENC_STATS_AVG_BITRATE,    "abr",      0, 1            },
+        { ENC_STATS_KEYFRAME,       "key",      0, 1            },
     };
     const char *next = fmt_spec;
 
@@ -400,6 +401,11 @@ fail:
         if (ret < 0)
             return ret;
     }
+
+    ret = pthread_mutex_init(&es->lock, NULL);
+    if (ret)
+        return AVERROR(ret);
+    es->lock_initialized = 1;
 
     ret = enc_stats_get_file(&es->io, path);
     if (ret < 0)
