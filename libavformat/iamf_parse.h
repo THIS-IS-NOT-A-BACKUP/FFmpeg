@@ -1,6 +1,6 @@
 /*
- * OpenH264 shared utils
- * Copyright (C) 2014 Martin Storsjo
+ * Immersive Audio Model and Formats parsing
+ * Copyright (c) 2023 James Almer <jamrial@gmail.com>
  *
  * This file is part of FFmpeg.
  *
@@ -19,19 +19,20 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#ifndef AVCODEC_LIBOPENH264_H
-#define AVCODEC_LIBOPENH264_H
+#ifndef AVFORMAT_IAMF_PARSE_H
+#define AVFORMAT_IAMF_PARSE_H
 
-#define OPENH264_VER_AT_LEAST(maj, min) \
-    ((OPENH264_MAJOR  > (maj)) || \
-     (OPENH264_MAJOR == (maj) && OPENH264_MINOR >= (min)))
+#include <stdint.h>
 
-// This function will be provided to the libopenh264 library.  The function will be called
-// when libopenh264 wants to log a message (error, warning, info, etc.).  The signature for
-// this function (defined in .../codec/api/svc/codec_api.h) is:
-//
-//        typedef void (*WelsTraceCallback) (void* ctx, int level, const char* string);
+#include "libavutil/iamf.h"
+#include "avio.h"
+#include "iamf.h"
 
-void ff_libopenh264_trace_callback(void *ctx, int level, const char *msg);
+int ff_iamf_parse_obu_header(const uint8_t *buf, int buf_size,
+                             unsigned *obu_size, int *start_pos, enum IAMF_OBU_Type *type,
+                             unsigned *skip_samples, unsigned *discard_padding);
 
-#endif /* AVCODEC_LIBOPENH264_H */
+int ff_iamfdec_read_descriptors(IAMFContext *c, AVIOContext *pb,
+                                int size, void *log_ctx);
+
+#endif /* AVFORMAT_IAMF_PARSE_H */
