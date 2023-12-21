@@ -2459,7 +2459,7 @@ static int read_frames(FilterGraph *fg, FilterGraphThread *fgt,
             }
         }
         did_step = 1;
-    };
+    }
 
     return (fgp->nb_outputs_done == fg->nb_outputs) ? AVERROR_EOF : 0;
 }
@@ -2835,7 +2835,7 @@ read_frames:
     for (unsigned i = 0; i < fg->nb_outputs; i++) {
         OutputFilterPriv *ofp = ofp_from_ofilter(fg->outputs[i]);
 
-        if (fgt.eof_out[i])
+        if (fgt.eof_out[i] || !fgt.graph)
             continue;
 
         ret = fg_output_frame(ofp, &fgt, NULL);
