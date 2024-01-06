@@ -486,8 +486,7 @@ static av_always_inline int encode_alpha_slice_data(AVCodecContext *avctx, int8_
             run++;
         }
     } while (idx < num_coeffs);
-    if (run)
-        put_alpha_run(&pb, run);
+    put_alpha_run(&pb, run);
     flush_put_bits(&pb);
     *a_data_size = put_bytes_output(&pb);
 
@@ -929,6 +928,9 @@ static av_cold int prores_encode_init(AVCodecContext *avctx)
                 return AVERROR(ENOMEM);
         }
     }
+
+    if (ctx->need_alpha)
+        avctx->bits_per_coded_sample = 32;
 
     ff_fdctdsp_init(&ctx->fdsp, avctx);
 
