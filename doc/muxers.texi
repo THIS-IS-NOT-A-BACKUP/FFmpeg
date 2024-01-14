@@ -763,17 +763,55 @@ default is @code{false}, otherwise they are cached until the expected
 time event is found.
 @end table
 
-@anchor{avi}
-@section avi
+@section ast
+AST (Audio Stream) muxer.
 
-Audio Video Interleaved muxer.
+This format is used to play audio on some Nintendo Wii games.
+
+It accepts a single audio stream.
+
+The @option{loopstart} and @option{loopend} options can be used to
+define a section of the file to loop for players honoring such
+options.
 
 @subsection Options
-
-It accepts the following options:
-
 @table @option
-@item reserve_index_space
+@item loopstart @var{start}
+Specify loop start position expressesd in milliseconds, from @code{-1}
+to @code{INT_MAX}, in case @code{-1} is set then no loop is specified
+(default -1) and the @option{loopend} value is ignored.
+
+@item loopend @var{end}
+Specify loop end position expressed in milliseconds, from @code{0} to
+@code{INT_MAX}, default is @code{0}, in case @code{0} is set it
+assumes the total stream duration.
+@end table
+
+@section au
+SUN AU audio muxer.
+
+It accepts a single audio stream.
+
+@anchor{avi}
+@section avi
+Audio Video Interleaved muxer.
+
+AVI is a proprietary format developed by Microsoft, and later formally specified
+through the Open DML specification.
+
+Because of differences in players implementations, it might be required to set
+some options to make sure that the generated output can be correctly played by
+the target player.
+
+@subsection Options
+@table @option
+@item flipped_raw_rgb @var{bool}
+If set to @code{true}, store positive height for raw RGB bitmaps, which
+indicates bitmap is stored bottom-up. Note that this option does not flip the
+bitmap which has to be done manually beforehand, e.g. by using the @samp{vflip}
+filter. Default is @code{false} and indicates bitmap is stored top down.
+
+@item reserve_index_space @var{size}
 Reserve the specified amount of bytes for the OpenDML master index of each
 stream within the file header. By default additional master indexes are
 embedded within the data packets if there is no space left in the first master
@@ -786,20 +824,15 @@ The required index space depends on the output file size and should be about 16
 bytes per gigabyte. When this option is omitted or set to zero the necessary
 index space is guessed.
 
-@item write_channel_mask
+Default value is @code{0}.
+
+@item write_channel_mask @var{bool}
 Write the channel layout mask into the audio stream header.
 
 This option is enabled by default. Disabling the channel mask can be useful in
 specific scenarios, e.g. when merging multiple audio streams into one for
 compatibility with software that only supports a single audio stream in AVI
 (see @ref{amerge,,the "amerge" section in the ffmpeg-filters manual,ffmpeg-filters}).
-
-@item flipped_raw_rgb
-If set to true, store positive height for raw RGB bitmaps, which indicates
-bitmap is stored bottom-up. Note that this option does not flip the bitmap
-which has to be done manually beforehand, e.g. by using the vflip filter.
-Default is @var{false} and indicates bitmap is stored top down.
-
 @end table
 
 @anchor{chromaprint}
@@ -2549,6 +2582,28 @@ Setting it to different and sufficiently large values ensures that the produced
 ogg files can be safely chained.
 
 @end table
+
+@anchor{rcwt}
+@section rcwt
+
+Raw Captions With Time (RCWT) is a format native to ccextractor, a commonly
+used open source tool for processing 608/708 closed caption (CC) sources.
+It can be used to archive the original, raw CC bitstream and to produce
+a source file for later CC processing or conversion. As a result,
+it also allows for interopability with ccextractor for processing CC data
+extracted via ffmpeg. The format is simple to parse and can be used
+to retain all lines and variants of CC.
+
+This muxer implements the specification as of 2024-01-05, which has
+been stable and unchanged for 10 years as of this writing.
+
+This muxer will have some nuances from the way that ccextractor muxes RCWT.
+No compatibility issues when processing the output with ccextractor
+have been observed as a result of this so far, but mileage may vary
+and outputs will not be a bit-exact match.
+
+A free specification of RCWT can be found here:
+@url{https://github.com/CCExtractor/ccextractor/blob/master/docs/BINARY_FILE_FORMAT.TXT}
 
 @anchor{segment}
 @section segment, stream_segment, ssegment
