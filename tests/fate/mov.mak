@@ -143,31 +143,42 @@ fate-mov-mp4-ttml-stpp: CMD = transcode srt $(TARGET_SAMPLES)/sub/SubRip_capabil
 fate-mov-mp4-ttml-dfxp: CMD = transcode srt $(TARGET_SAMPLES)/sub/SubRip_capability_tester.srt mp4 "-map 0:s -c:s ttml -time_base:s 1:1000 -tag:s dfxp -strict unofficial" "-map 0 -c copy" "-of json -show_entries packet:stream=index,codec_type,codec_tag_string,codec_tag,codec_name,time_base,start_time,duration_ts,duration,nb_frames,nb_read_packets:stream_tags"
 
 # avif demuxing - still image with 1 item.
-FATE_MOV_FFMPEG_SAMPLES-$(call FRAMEMD5, MOV, AV1, AV1_PARSER) \
+FATE_MOV_FFMPEG_SAMPLES-$(call FRAMECRC, MOV, AV1, AV1_PARSER) \
                            += fate-mov-avif-demux-still-image-1-item
-fate-mov-avif-demux-still-image-1-item: CMD = framemd5 -c:v av1 -i $(TARGET_SAMPLES)/avif/still_image.avif -c:v copy
+fate-mov-avif-demux-still-image-1-item: CMD = framecrc -c:v av1 -i $(TARGET_SAMPLES)/avif/still_image.avif -c:v copy
 
-# avif demuxing - still image with multiple items. only the primary item will be
-# parsed.
-FATE_MOV_FFMPEG_SAMPLES-$(call FRAMEMD5, MOV, AV1, AV1_PARSER) \
+# avif demuxing - still image with multiple items.
+FATE_MOV_FFMPEG_SAMPLES-$(call FRAMECRC, MOV, AV1, AV1_PARSER) \
                            += fate-mov-avif-demux-still-image-multiple-items
-fate-mov-avif-demux-still-image-multiple-items: CMD = framemd5 -c:v av1 -i $(TARGET_SAMPLES)/avif/still_image_exif.avif -c:v copy
+fate-mov-avif-demux-still-image-multiple-items: CMD = framecrc -c:v av1 -i $(TARGET_SAMPLES)/avif/still_image_exif.avif -c:v copy
 
-FATE_MOV_FFMPEG_SAMPLES-$(call FRAMEMD5, MOV, HEVC, HEVC_PARSER) \
+# heic demuxing - still image with 1 item.
+FATE_MOV_FFMPEG_SAMPLES-$(call FRAMECRC, MOV, HEVC, HEVC_PARSER) \
                            += fate-mov-heic-demux-still-image-1-item
-fate-mov-heic-demux-still-image-1-item: CMD = framemd5 -i $(TARGET_SAMPLES)/heif-conformance/C002.heic -c:v copy
+fate-mov-heic-demux-still-image-1-item: CMD = framecrc -i $(TARGET_SAMPLES)/heif-conformance/C002.heic -c:v copy
 
-FATE_MOV_FFMPEG_SAMPLES-$(call FRAMEMD5, MOV, HEVC, HEVC_PARSER) \
+# heic demuxing - still image with multiple items.
+FATE_MOV_FFMPEG_SAMPLES-$(call FRAMECRC, MOV, HEVC, HEVC_PARSER) \
                            += fate-mov-heic-demux-still-image-multiple-items
-fate-mov-heic-demux-still-image-multiple-items: CMD = framemd5 -i $(TARGET_SAMPLES)/heif-conformance/C003.heic -c:v copy -map 0
+fate-mov-heic-demux-still-image-multiple-items: CMD = framecrc -i $(TARGET_SAMPLES)/heif-conformance/C003.heic -c:v copy -map 0
 
-FATE_MOV_FFMPEG_SAMPLES-$(call FRAMEMD5, MOV, HEVC, HEVC_PARSER) \
+# heic demuxing - still image with multiple items in a grid.
+FATE_MOV_FFMPEG_FFPROBE_SAMPLES-$(call DEMMUX, MOV, FRAMECRC, HEVC_DECODER HEVC_PARSER) \
                            += fate-mov-heic-demux-still-image-grid
-fate-mov-heic-demux-still-image-grid: CMD = framemd5 -i $(TARGET_SAMPLES)/heif-conformance/C007.heic -c:v copy -map 0:g:0
+fate-mov-heic-demux-still-image-grid: CMD = stream_demux mov $(TARGET_SAMPLES)/heif-conformance/C007.heic "" "-c:v copy -map 0:g:0" \
+  "-show_entries stream_group=index,id,nb_streams,type:stream_group_disposition:stream_group_tags:stream_group_stream=index,id:stream_group_stream_disposition"
 
-FATE_MOV_FFMPEG_SAMPLES-$(call FRAMEMD5, MOV, HEVC, HEVC_PARSER) \
+# heic demuxing - still image with multiple items in an overlay canvas.
+FATE_MOV_FFMPEG_FFPROBE_SAMPLES-$(call DEMMUX, MOV, FRAMECRC, HEVC_DECODER HEVC_PARSER) \
                            += fate-mov-heic-demux-still-image-iovl
-fate-mov-heic-demux-still-image-iovl: CMD = framemd5 -i $(TARGET_SAMPLES)/heif-conformance/C015.heic -c:v copy -map 0:g:0
+fate-mov-heic-demux-still-image-iovl: CMD = stream_demux mov $(TARGET_SAMPLES)/heif-conformance/C015.heic "" "-c:v copy -map 0:g:0" \
+  "-show_entries stream_group=index,id,nb_streams,type:stream_group_disposition:stream_group_tags:stream_group_stream=index,id:stream_group_stream_disposition"
+
+# heic demuxing - still image where one image item is placed twice on an overlay canvas.
+FATE_MOV_FFMPEG_FFPROBE_SAMPLES-$(call DEMMUX, MOV, FRAMECRC, HEVC_DECODER HEVC_PARSER) \
+                           += fate-mov-heic-demux-still-image-iovl-2
+fate-mov-heic-demux-still-image-iovl-2: CMD = stream_demux mov $(TARGET_SAMPLES)/heif-conformance/C021.heic "" "-c:v copy -map 0:g:0" \
+  "-show_entries stream_group=index,id,nb_streams,type:stream_group_disposition:stream_group_tags:stream_group_stream=index,id:stream_group_stream_disposition"
 
 # Resulting remux should have:
 # 1. first audio stream with AV_DISPOSITION_HEARING_IMPAIRED
