@@ -2778,12 +2778,6 @@ static void show_frame(WriterContext *w, AVFrame *frame, AVStream *stream,
     print_time("pkt_dts_time",          frame->pkt_dts, &stream->time_base);
     print_ts  ("best_effort_timestamp", frame->best_effort_timestamp);
     print_time("best_effort_timestamp_time", frame->best_effort_timestamp, &stream->time_base);
-#if LIBAVUTIL_VERSION_MAJOR < 59
-    AV_NOWARN_DEPRECATED(
-    print_duration_ts  ("pkt_duration",      frame->pkt_duration);
-    print_duration_time("pkt_duration_time", frame->pkt_duration, &stream->time_base);
-    )
-#endif
     print_duration_ts  ("duration",          frame->duration);
     print_duration_time("duration_time",     frame->duration, &stream->time_base);
     if (fd && fd->pkt_pos != -1)  print_fmt    ("pkt_pos", "%"PRId64, fd->pkt_pos);
@@ -2811,12 +2805,6 @@ static void show_frame(WriterContext *w, AVFrame *frame, AVStream *stream,
             print_str_opt("sample_aspect_ratio", "N/A");
         }
         print_fmt("pict_type",              "%c", av_get_picture_type_char(frame->pict_type));
-#if LIBAVUTIL_VERSION_MAJOR < 59
-    AV_NOWARN_DEPRECATED(
-        print_int("coded_picture_number",   frame->coded_picture_number);
-        print_int("display_picture_number", frame->display_picture_number);
-    )
-#endif
         print_int("interlaced_frame",       !!(frame->flags & AV_FRAME_FLAG_INTERLACED));
         print_int("top_field_first",        !!(frame->flags & AV_FRAME_FLAG_TOP_FIELD_FIRST));
         print_int("repeat_pict",            frame->repeat_pict);
