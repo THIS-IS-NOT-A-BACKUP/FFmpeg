@@ -721,10 +721,11 @@ static AVFrameSideData *add_side_data_from_buf(AVFrameSideData ***sd,
     if (!buf)
         return NULL;
 
-    if (*nb_sd > INT_MAX / sizeof(*sd) - 1)
+    // *nb_sd + 1 needs to fit into an int and a size_t.
+    if ((unsigned)*nb_sd >= FFMIN(INT_MAX, SIZE_MAX))
         return NULL;
 
-    tmp = av_realloc(*sd, (*nb_sd + 1) * sizeof(*sd));
+    tmp = av_realloc_array(*sd, sizeof(**sd), *nb_sd + 1);
     if (!tmp)
         return NULL;
     *sd = tmp;
@@ -813,9 +814,9 @@ int av_frame_side_data_clone(AVFrameSideData ***sd, int *nb_sd,
     return 0;
 }
 
-const AVFrameSideData *av_frame_side_data_get(const AVFrameSideData **sd,
-                                              const int nb_sd,
-                                              enum AVFrameSideDataType type)
+const AVFrameSideData *av_frame_side_data_get_c(const AVFrameSideData * const *sd,
+                                                const int nb_sd,
+                                                enum AVFrameSideDataType type)
 {
     for (int i = 0; i < nb_sd; i++) {
         if (sd[i]->type == type)
@@ -828,7 +829,7 @@ AVFrameSideData *av_frame_get_side_data(const AVFrame *frame,
                                         enum AVFrameSideDataType type)
 {
     return (AVFrameSideData *)av_frame_side_data_get(
-        (const AVFrameSideData **)frame->side_data, frame->nb_side_data,
+        frame->side_data, frame->nb_side_data,
         type
     );
 }
