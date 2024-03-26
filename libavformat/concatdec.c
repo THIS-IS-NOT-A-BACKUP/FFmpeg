@@ -323,7 +323,7 @@ static int64_t get_best_effort_duration(ConcatFile *file, AVFormatContext *avf)
     if (file->user_duration != AV_NOPTS_VALUE)
         return file->user_duration;
     if (file->outpoint != AV_NOPTS_VALUE)
-        return file->outpoint - file->file_inpoint;
+        return av_sat_sub64(file->outpoint, file->file_inpoint);
     if (avf->duration > 0)
         return avf->duration - (file->file_inpoint - file->file_start_time);
     if (file->next_dts != AV_NOPTS_VALUE)
@@ -947,7 +947,7 @@ const FFInputFormat ff_concat_demuxer = {
     .p.long_name    = NULL_IF_CONFIG_SMALL("Virtual concatenation script"),
     .p.priv_class   = &concat_class,
     .priv_data_size = sizeof(ConcatContext),
-    .flags_internal = FF_FMT_INIT_CLEANUP,
+    .flags_internal = FF_INFMT_FLAG_INIT_CLEANUP,
     .read_probe     = concat_probe,
     .read_header    = concat_read_header,
     .read_packet    = concat_read_packet,
