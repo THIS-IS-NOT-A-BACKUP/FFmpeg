@@ -6140,8 +6140,10 @@ static int mov_read_smdm(MOVContext *c, AVIOContext *pb, MOVAtom atom)
         av_log(c->fc, AV_LOG_WARNING, "Unsupported Mastering Display Metadata box version %d\n", version);
         return 0;
     }
-    if (sc->mastering)
-        return AVERROR_INVALIDDATA;
+    if (sc->mastering) {
+        av_log(c->fc, AV_LOG_WARNING, "Ignoring duplicate Mastering Display Metadata\n");
+        return 0;
+    }
 
     avio_skip(pb, 3); /* flags */
 
@@ -6178,9 +6180,14 @@ static int mov_read_mdcv(MOVContext *c, AVIOContext *pb, MOVAtom atom)
 
     sc = c->fc->streams[c->fc->nb_streams - 1]->priv_data;
 
-    if (atom.size < 24 || sc->mastering) {
+    if (atom.size < 24) {
         av_log(c->fc, AV_LOG_ERROR, "Invalid Mastering Display Color Volume box\n");
         return AVERROR_INVALIDDATA;
+    }
+
+    if (sc->mastering) {
+        av_log(c->fc, AV_LOG_WARNING, "Ignoring duplicate Mastering Display Color Volume\n");
+        return 0;
     }
 
     sc->mastering = av_mastering_display_metadata_alloc();
@@ -8079,7 +8086,7 @@ static int mov_read_iloc(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     }
     item_count = (version < 2) ? avio_rb16(pb) : avio_rb32(pb);
 
-    heif_item = av_realloc_array(c->heif_item, item_count, sizeof(*c->heif_item));
+    heif_item = av_realloc_array(c->heif_item, FFMAX(item_count, c->nb_heif_item), sizeof(*c->heif_item));
     if (!heif_item)
         return AVERROR(ENOMEM);
     c->heif_item = heif_item;
@@ -8201,7 +8208,7 @@ static int mov_read_iinf(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     avio_rb24(pb);  // flags.
     entry_count = version ? avio_rb32(pb) : avio_rb16(pb);
 
-    heif_item = av_realloc_array(c->heif_item, entry_count, sizeof(*c->heif_item));
+    heif_item = av_realloc_array(c->heif_item, FFMAX(entry_count, c->nb_heif_item), sizeof(*c->heif_item));
     if (!heif_item)
         return AVERROR(ENOMEM);
     c->heif_item = heif_item;
@@ -8991,7 +8998,7 @@ static int mov_read_timecode_track(AVFormatContext *s, AVStream *st)
     /* 60 fps content have tmcd_nb_frames set to 30 but tc_rate set to 60, so
      * we multiply the frame number with the quotient.
      * See tickets #9492, #9710. */
-    rounded_tc_rate = (tc_rate.num + tc_rate.den / 2) / tc_rate.den;
+    rounded_tc_rate = (tc_rate.num + tc_rate.den / 2LL) / tc_rate.den;
     /* Work around files where tmcd_nb_frames is rounded down from frame rate
      * instead of up. See ticket #5978. */
     if (tmcd_nb_frames == tc_rate.num / tc_rate.den &&
