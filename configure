@@ -245,6 +245,7 @@ External library support:
   --enable-libjxl          enable JPEG XL de/encoding via libjxl [no]
   --enable-libklvanc       enable Kernel Labs VANC processing [no]
   --enable-libkvazaar      enable HEVC encoding via libkvazaar [no]
+  --enable-liblc3          enable LC3 de/encoding via liblc3 [no]
   --enable-liblensfun      enable lensfun lens correction [no]
   --enable-libmodplug      enable ModPlug via libmodplug [no]
   --enable-libmp3lame      enable MP3 encoding via libmp3lame [no]
@@ -1927,6 +1928,7 @@ EXTERNAL_LIBRARY_LIST="
     libjxl
     libklvanc
     libkvazaar
+    liblc3
     libmodplug
     libmp3lame
     libmysofa
@@ -2854,6 +2856,7 @@ hevcparse_select="golomb"
 hevc_sei_select="atsc_a53 golomb"
 frame_thread_encoder_deps="encoders threads"
 iamfdec_deps="iamf"
+iamfdec_select="iso_media mpeg4audio"
 iamfenc_deps="iamf"
 inflate_wrapper_deps="zlib"
 intrax8_select="blockdsp wmv2dsp"
@@ -3503,6 +3506,9 @@ libilbc_encoder_deps="libilbc"
 libjxl_decoder_deps="libjxl libjxl_threads"
 libjxl_encoder_deps="libjxl libjxl_threads"
 libkvazaar_encoder_deps="libkvazaar"
+liblc3_decoder_deps="liblc3"
+liblc3_encoder_deps="liblc3"
+liblc3_encoder_select="audio_frame_queue"
 libmodplug_demuxer_deps="libmodplug"
 libmp3lame_encoder_deps="libmp3lame"
 libmp3lame_encoder_select="audio_frame_queue mpegaudioheader"
@@ -3594,8 +3600,8 @@ gxf_muxer_select="pcm_rechunk_bsf"
 hds_muxer_select="flv_muxer"
 hls_demuxer_select="aac_demuxer ac3_demuxer adts_header ac3_parser eac3_demuxer mov_demuxer mpegts_demuxer"
 hls_muxer_select="mov_muxer mpegts_muxer"
-iamf_demuxer_deps="iamfdec"
-iamf_muxer_deps="iamfenc"
+iamf_demuxer_select="iamfdec"
+iamf_muxer_select="iamfenc"
 image2_alias_pix_demuxer_select="image2_demuxer"
 image2_brender_pix_demuxer_select="image2_demuxer"
 imf_demuxer_deps="libxml2"
@@ -3611,8 +3617,9 @@ matroska_muxer_select="mpeg4audio riffenc aac_adtstoasc_bsf pgs_frame_merge_bsf 
 mlp_demuxer_select="mlp_parser"
 mmf_muxer_select="riffenc"
 mov_demuxer_select="iso_media riffdec"
-mov_demuxer_suggest="zlib"
+mov_demuxer_suggest="iamfdec zlib"
 mov_muxer_select="iso_media riffenc rtpenc_chain vp9_superframe_bsf aac_adtstoasc_bsf ac3_parser"
+mov_muxer_suggest="iamfenc"
 mp3_demuxer_select="mpegaudio_parser"
 mp3_muxer_select="mpegaudioheader"
 mp4_muxer_select="mov_muxer"
@@ -4083,7 +4090,7 @@ enable asm
 enable debug
 enable doc
 enable faan faandct faanidct
-enable iamf iamfdec iamfenc
+enable iamf
 enable large_tests
 enable optimizations
 enable ptx_compression
@@ -6874,6 +6881,7 @@ enabled libjxl            && require_pkg_config libjxl "libjxl >= 0.7.0" jxl/dec
                              require_pkg_config libjxl_threads "libjxl_threads >= 0.7.0" jxl/thread_parallel_runner.h JxlThreadParallelRunner
 enabled libklvanc         && require libklvanc libklvanc/vanc.h klvanc_context_create -lklvanc
 enabled libkvazaar        && require_pkg_config libkvazaar "kvazaar >= 2.0.0" kvazaar.h kvz_api_get
+enabled liblc3            && require_pkg_config liblc3 "lc3 >= 1.1.0" lc3.h lc3_hr_setup_encoder
 enabled liblensfun        && require_pkg_config liblensfun lensfun lensfun.h lf_db_create
 
 if enabled libmfx && enabled libvpl; then
