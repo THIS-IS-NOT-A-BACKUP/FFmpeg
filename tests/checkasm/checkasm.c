@@ -204,7 +204,8 @@ static const struct {
         { "vorbisdsp", checkasm_check_vorbisdsp },
     #endif
     #if CONFIG_VVC_DECODER
-        { "vvc_mc", checkasm_check_vvc_mc },
+        { "vvc_alf", checkasm_check_vvc_alf },
+        { "vvc_mc",  checkasm_check_vvc_mc  },
     #endif
 #endif
 #if CONFIG_AVFILTER
@@ -286,6 +287,7 @@ static const struct {
     { "RVVi64",   "rvv_i64",  AV_CPU_FLAG_RVV_I64 },
     { "RVVf64",   "rvv_f64",  AV_CPU_FLAG_RVV_F64 },
     { "RV_Zvbb",  "rv_zvbb",  AV_CPU_FLAG_RV_ZVBB },
+    { "misaligned", "misaligned", AV_CPU_FLAG_RV_MISALIGNED },
 #elif ARCH_MIPS
     { "MMI",      "mmi",      AV_CPU_FLAG_MMI },
     { "MSA",      "msa",      AV_CPU_FLAG_MSA },
