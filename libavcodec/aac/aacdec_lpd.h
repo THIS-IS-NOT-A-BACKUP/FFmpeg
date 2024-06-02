@@ -1,7 +1,5 @@
 /*
- * Generate a header file for hardcoded sine windows
- *
- * Copyright (c) 2009 Reimar Döffinger <Reimar.Doeffinger@gmx.de>
+ * Copyright (c) 2024 Lynne <dev@lynne.ee>
  *
  * This file is part of FFmpeg.
  *
@@ -20,28 +18,16 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include "tableprint.h"
+#ifndef AVCODEC_AAC_AACDEC_LPD_H
+#define AVCODEC_AAC_AACDEC_LPD_H
 
-#define BUILD_TABLES
-#define CONFIG_HARDCODED_TABLES 0
-#include "sinewin_fixed_tablegen.h"
+#include "aacdec.h"
+#include "libavcodec/get_bits.h"
 
-int main(void)
-{
-    write_fileheader();
+int ff_aac_parse_fac_data(AACUsacElemData *ce, GetBitContext *gb,
+                          int use_gain, int len);
 
-    init_sine_windows_fixed();
-#define PRINT_TABLE(size)                               \
-    printf("SINETABLE("#size") = {\n");                 \
-    write_int32_t_array(sine_ ## size ## _fixed, size); \
-    printf("};\n")
-    PRINT_TABLE(96);
-    PRINT_TABLE(120);
-    PRINT_TABLE(128);
-    PRINT_TABLE(480);
-    PRINT_TABLE(512);
-    PRINT_TABLE(768);
-    PRINT_TABLE(960);
-    PRINT_TABLE(1024);
-    return 0;
-}
+int ff_aac_ldp_parse_channel_stream(AACDecContext *ac, AACUSACConfig *usac,
+                                    AACUsacElemData *ce, GetBitContext *gb);
+
+#endif /* AVCODEC_AAC_AACDEC_LPD_H */

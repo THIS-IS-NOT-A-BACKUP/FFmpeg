@@ -1,7 +1,5 @@
 /*
- * Generate a header file for hardcoded sine windows
- *
- * Copyright (c) 2009 Reimar Döffinger <Reimar.Doeffinger@gmx.de>
+ * Copyright (c) 2024 Lynne <dev@lynne.ee>
  *
  * This file is part of FFmpeg.
  *
@@ -20,28 +18,20 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include "tableprint.h"
+#ifndef AVCODEC_AAC_AACDEC_USAC_H
+#define AVCODEC_AAC_AACDEC_USAC_H
 
-#define BUILD_TABLES
-#define CONFIG_HARDCODED_TABLES 0
-#include "sinewin_fixed_tablegen.h"
+#include "aacdec.h"
 
-int main(void)
-{
-    write_fileheader();
+#include "libavcodec/get_bits.h"
 
-    init_sine_windows_fixed();
-#define PRINT_TABLE(size)                               \
-    printf("SINETABLE("#size") = {\n");                 \
-    write_int32_t_array(sine_ ## size ## _fixed, size); \
-    printf("};\n")
-    PRINT_TABLE(96);
-    PRINT_TABLE(120);
-    PRINT_TABLE(128);
-    PRINT_TABLE(480);
-    PRINT_TABLE(512);
-    PRINT_TABLE(768);
-    PRINT_TABLE(960);
-    PRINT_TABLE(1024);
-    return 0;
-}
+int ff_aac_usac_config_decode(AACDecContext *ac, AVCodecContext *avctx,
+                              GetBitContext *gb, OutputConfiguration *oc,
+                              int channel_config);
+
+int ff_aac_usac_reset_state(AACDecContext *ac, OutputConfiguration *oc);
+
+int ff_aac_usac_decode_frame(AVCodecContext *avctx, AACDecContext *ac,
+                             GetBitContext *gb, int *got_frame_ptr);
+
+#endif /* AVCODEC_AAC_AACDEC_USAC_H */
