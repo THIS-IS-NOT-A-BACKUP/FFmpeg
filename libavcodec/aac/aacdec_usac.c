@@ -540,7 +540,7 @@ static int decode_spectrum_and_dequant_ac(AACDecContext *s, float coef[1024],
     c = ff_aac_ac_map_process(state, reset, N);
 
     /* Backup reader for rolling back by 14 bits at the end */
-    gb2 = (GetBitContext)*gb;
+    gb2 = *gb;
     gb_count = get_bits_count(&gb2);
 
     for (i = 0; i < len/2; i++) {
@@ -1338,7 +1338,7 @@ static int decode_usac_core_coder(AACDecContext *ac, AACUSACConfig *usac,
         if (get_bits1(gb)) { /* fac_data_present */
             const uint16_t len_8 = usac->core_frame_len / 8;
             const uint16_t len_16 = usac->core_frame_len / 16;
-            const uint16_t fac_len = ics->window_sequence[0] == EIGHT_SHORT_SEQUENCE ? len_8 : len_16;
+            const uint16_t fac_len = ics->window_sequence[0] == EIGHT_SHORT_SEQUENCE ? len_16 : len_8;
             ret = ff_aac_parse_fac_data(ue, gb, 1, fac_len);
             if (ret < 0)
                 return ret;
@@ -1396,7 +1396,7 @@ static int parse_audio_preroll(AACDecContext *ac, GetBitContext *gb)
         if (au_len*8 > tmp_buf_size) {
             uint8_t *tmp2;
             tmp_buf = tmp_buf == temp_data ? NULL : tmp_buf;
-            tmp2 = realloc(tmp_buf, au_len*8);
+            tmp2 = av_realloc_array(tmp_buf, au_len, 8);
             if (!tmp2) {
                 if (tmp_buf != temp_data)
                     av_free(tmp_buf);
