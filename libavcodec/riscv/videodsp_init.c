@@ -1,6 +1,4 @@
 /*
- * Copyright © 2022 Rémi Denis-Courmont.
- *
  * This file is part of FFmpeg.
  *
  * FFmpeg is free software; you can redistribute it and/or
@@ -19,13 +17,20 @@
  */
 
 #include "config.h"
-#include "libavutil/riscv/asm.S"
-#include "libavutil/riscv/bswap_rvb.S"
+#include "libavutil/attributes.h"
+#include "libavutil/cpu.h"
+#include "libavcodec/videodsp.h"
 
-#if (__riscv_xlen >= 64)
-func ff_bswap32_buf_rvb, zbb
-        lpad    0
-        slli    a2, a2, 2
-        bswap32_rvb a0, a1, a2
-endfunc
+void ff_prefetch_rv_zicbop(const uint8_t *mem, ptrdiff_t stride, int h);
+
+av_cold void ff_videodsp_init_riscv(VideoDSPContext *ctx, int bpc)
+{
+#if HAVE_RV_ZICBOP
+    /* TODO: Since we pay for the indirect function call anyway, we should
+     * only set this if Cache-Block Operation Prefetch (Zicbop) is actually
+     * supported and otherwise save a few cycles of NOPs.
+     * But so far there are no means to detect Zicbop (in user mode).
+     */
+    ctx->prefetch = ff_prefetch_rv_zicbop;
 #endif
+}
