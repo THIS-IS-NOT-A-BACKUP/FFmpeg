@@ -3007,13 +3007,13 @@ static int mov_write_ctts_tag(AVFormatContext *s, AVIOContext *pb, MOVTrack *tra
     if (!ctts_entries)
         return AVERROR(ENOMEM);
     ctts_entries[0].count = 1;
-    ctts_entries[0].duration = track->cluster[0].cts;
+    ctts_entries[0].offset = track->cluster[0].cts;
     for (i = 1; i < track->entry; i++) {
-        if (track->cluster[i].cts == ctts_entries[entries].duration) {
+        if (track->cluster[i].cts == ctts_entries[entries].offset) {
             ctts_entries[entries].count++; /* compress */
         } else {
             entries++;
-            ctts_entries[entries].duration = track->cluster[i].cts;
+            ctts_entries[entries].offset = track->cluster[i].cts;
             ctts_entries[entries].count = 1;
         }
     }
@@ -3029,7 +3029,7 @@ static int mov_write_ctts_tag(AVFormatContext *s, AVIOContext *pb, MOVTrack *tra
     avio_wb32(pb, entries); /* entry count */
     for (i = 0; i < entries; i++) {
         avio_wb32(pb, ctts_entries[i].count);
-        avio_wb32(pb, ctts_entries[i].duration);
+        avio_wb32(pb, ctts_entries[i].offset);
     }
     av_free(ctts_entries);
     return atom_size;
@@ -7675,19 +7675,11 @@ static int mov_init(AVFormatContext *s)
                 s->avoid_negative_ts == AVFMT_AVOID_NEG_TS_MAKE_ZERO)
                 mov->use_editlist = 0;
         }
-        if (mov->flags & FF_MOV_FLAG_CMAF) {
-            // CMAF Track requires negative cts offsets without edit lists
-            mov->use_editlist = 0;
-        }
     }
     if (mov->flags & FF_MOV_FLAG_EMPTY_MOOV &&
         !(mov->flags & FF_MOV_FLAG_DELAY_MOOV) && mov->use_editlist)
         av_log(s, AV_LOG_WARNING, "No meaningful edit list will be written when using empty_moov without delay_moov\n");
 
-    if (mov->flags & FF_MOV_FLAG_CMAF && mov->use_editlist) {
-        av_log(s, AV_LOG_WARNING, "Edit list enabled; Assuming writing CMAF Track File\n");
-        mov->flags &= ~FF_MOV_FLAG_NEGATIVE_CTS_OFFSETS;
-    }
     if (!mov->use_editlist && s->avoid_negative_ts == AVFMT_AVOID_NEG_TS_AUTO &&
         !(mov->flags & FF_MOV_FLAG_NEGATIVE_CTS_OFFSETS))
         s->avoid_negative_ts = AVFMT_AVOID_NEG_TS_MAKE_ZERO;
