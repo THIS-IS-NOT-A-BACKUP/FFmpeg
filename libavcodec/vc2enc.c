@@ -22,6 +22,7 @@
 #include "libavutil/mem.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/opt.h"
+#include "libavutil/thread.h"
 #include "libavutil/version.h"
 #include "codec_internal.h"
 #include "dirac.h"
@@ -186,22 +187,44 @@ typedef struct VC2EncContext {
     enum DiracParseCodes last_parse_code;
 } VC2EncContext;
 
-static av_always_inline void put_vc2_ue_uint(PutBitContext *pb, uint32_t val)
+/// x_k x_{k-1} ... x_0 -> 0 x_k 0 x_{k - 1} ... 0 x_0
+static uint16_t interleaved_ue_golomb_tab[256];
+/// 1 x_{k-1} ... x_0 -> 0 0 0 x_{k - 1} ... 0 x_0
+static uint16_t top_interleaved_ue_golomb_tab[256];
+/// 1 x_{k-1} ... x_0 -> 2 * k
+static uint8_t golomb_len_tab[256];
+
+static av_cold void vc2_init_static_data(void)
 {
-    int i;
-    int bits = av_log2(++val);
-    unsigned topbit = 1 << bits;
-    uint64_t pbits = 0;
-
-    for (i = 0; i < bits; i++) {
-        topbit >>= 1;
-        av_assert2(pbits <= UINT64_MAX>>3);
-        pbits <<= 2;
-        if (val & topbit)
-            pbits |= 0x1;
+    interleaved_ue_golomb_tab[1] = 1;
+    for (unsigned i = 2; i < 256; ++i) {
+        golomb_len_tab[i] = golomb_len_tab[i >> 1] + 2;
+        interleaved_ue_golomb_tab[i] = (interleaved_ue_golomb_tab[i >> 1] << 2) | (i & 1);
+        top_interleaved_ue_golomb_tab[i] = interleaved_ue_golomb_tab[i] ^ (1 << golomb_len_tab[i]);
     }
+}
 
-    put_bits63(pb, 2 * bits + 1, (pbits << 1) | 1);
+static av_always_inline void put_vc2_ue_uint_inline(PutBitContext *pb, uint32_t val)
+{
+    uint64_t pbits = 1;
+    int bits = 1;
+
+    ++val;
+
+    while (val >> 8) {
+        pbits |= (uint64_t)interleaved_ue_golomb_tab[val & 0xff] << bits;
+        val  >>= 8;
+        bits  += 16;
+    }
+    pbits |= (uint64_t)top_interleaved_ue_golomb_tab[val] << bits;
+    bits  += golomb_len_tab[val];
+
+    put_bits63(pb, bits, pbits);
+}
+
+static av_noinline void put_vc2_ue_uint(PutBitContext *pb, uint32_t val)
+{
+    put_vc2_ue_uint_inline(pb, val);
 }
 
 static av_always_inline int count_vc2_ue_uint(uint32_t val)
@@ -527,7 +550,7 @@ static void encode_subband(const VC2EncContext *s, PutBitContext *pb,
     for (y = top; y < bottom; y++) {
         for (x = left; x < right; x++) {
             uint32_t c_abs = QUANT(FFABS(coeff[x]), q_m, q_a, q_s);
-            put_vc2_ue_uint(pb, c_abs);
+            put_vc2_ue_uint_inline(pb, c_abs);
             if (c_abs)
                 put_bits(pb, 1, coeff[x] < 0);
         }
@@ -1003,6 +1026,7 @@ static av_cold int vc2_encode_end(AVCodecContext *avctx)
 
 static av_cold int vc2_encode_init(AVCodecContext *avctx)
 {
+    static AVOnce init_static_once = AV_ONCE_INIT;
     Plane *p;
     SubBand *b;
     int i, level, o, shift;
@@ -1164,6 +1188,8 @@ static av_cold int vc2_encode_init(AVCodecContext *avctx)
             s->qmagic_lut[i][1] = t;
         }
     }
+
+    ff_thread_once(&init_static_once, vc2_init_static_data);
 
     return 0;
 }
