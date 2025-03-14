@@ -392,6 +392,22 @@ static void write_header(FFV1Context *f)
     }
 }
 
+static void set_micro_version(FFV1Context *f)
+{
+    f->combined_version = f->version << 16;
+    if (f->version > 2) {
+        if (f->version == 3) {
+            f->micro_version = 4;
+        } else if (f->version == 4) {
+            f->micro_version = 5;
+        } else
+            av_assert0(0);
+
+        f->combined_version += f->micro_version;
+    } else
+        av_assert0(f->micro_version == 0);
+}
+
 av_cold int ff_ffv1_write_extradata(AVCodecContext *avctx)
 {
     FFV1Context *f = avctx->priv_data;
@@ -414,15 +430,8 @@ av_cold int ff_ffv1_write_extradata(AVCodecContext *avctx)
     ff_build_rac_states(&c, 0.05 * (1LL << 32), 256 - 8);
 
     put_symbol(&c, state, f->version, 0);
-    f->combined_version = f->version << 16;
-    if (f->version > 2) {
-        if (f->version == 3) {
-            f->micro_version = 4;
-        } else if (f->version == 4)
-            f->micro_version = 5;
-        f->combined_version += f->micro_version;
+    if (f->version > 2)
         put_symbol(&c, state, f->micro_version, 0);
-    }
 
     put_symbol(&c, state, f->ac, 0);
     if (f->ac == AC_RANGE_CUSTOM_TAB)
@@ -742,6 +751,8 @@ av_cold int ff_ffv1_encode_init(AVCodecContext *avctx)
         s->num_v_slices = 1;
     }
 
+    set_micro_version(s);
+
     return 0;
 }
 
@@ -892,6 +903,9 @@ av_cold int ff_ffv1_encode_setup_plane_info(AVCodecContext *avctx,
     }
     av_assert0(s->bits_per_raw_sample >= 8);
 
+    if (s->remap_mode < 0)
+        s->remap_mode = s->flt ? 2 : 0;
+
     return av_pix_fmt_get_chroma_sub_sample(pix_fmt, &s->chroma_h_shift, &s->chroma_v_shift);
 }
 
@@ -947,7 +961,7 @@ static int encode_init_internal(AVCodecContext *avctx)
 
         ff_build_rac_states(&s->slices[j].c, 0.05 * (1LL << 32), 256 - 8);
 
-        s->slices[j].remap = s->flt;
+        s->slices[j].remap = s->remap_mode;
     }
 
     if ((ret = ff_ffv1_init_slices_state(s)) < 0)
@@ -1104,6 +1118,7 @@ static void choose_rct_params(const FFV1Context *f, FFV1SliceContext *sc,
 static void encode_remap(FFV1Context *f, FFV1SliceContext *sc)
 {
     int transparency = f->transparency;
+    int flip = sc->remap == 2 ? 0x7FFF : 0;
 
     for (int p= 0; p<3 + transparency; p++) {
         int j = 0;
@@ -1112,7 +1127,7 @@ static void encode_remap(FFV1Context *f, FFV1SliceContext *sc)
         int run = 0;
         memset(state, 128, sizeof(state));
         for (int i= 0; i<65536; i++) {
-            int ri = i ^ ((i&0x8000) ? 0 : 0x7FFF);
+            int ri = i ^ ((i&0x8000) ? 0 : flip);
             int u = sc->fltmap[p][ri];
             sc->fltmap[p][ri] = j;
             j+= u;
@@ -1238,6 +1253,8 @@ size_t ff_ffv1_encode_buffer_size(AVCodecContext *avctx)
     maxsize += f->slice_count * 800; //for slice header
     if (f->version > 3) {
         maxsize *= f->bits_per_raw_sample + 1;
+        if (f->remap_mode)
+            maxsize += f->slice_count * 70000 * (1 + 2*f->chroma_planes + f->transparency);
     } else {
         maxsize += f->slice_count * 2 * (avctx->width + avctx->height); //for bug with slices that code some pixels more than once
         maxsize *= 8*(2*f->bits_per_raw_sample + 5);
@@ -1419,6 +1436,16 @@ static const AVOption options[] = {
             { .i64 = QTABLE_8BIT }, INT_MIN, INT_MAX, VE, .unit = "qtable" },
         { "greater8bit", NULL, 0, AV_OPT_TYPE_CONST,
             { .i64 = QTABLE_GT8BIT }, INT_MIN, INT_MAX, VE, .unit = "qtable" },
+    { "remap_mode", "Remap Mode", OFFSET(remap_mode), AV_OPT_TYPE_INT, { .i64 = -1 }, -1, 2, VE, .unit = "remap_mode" },
+        { "auto", "Automatic", 0, AV_OPT_TYPE_CONST,
+            { .i64 = -1 }, INT_MIN, INT_MAX, VE, .unit = "remap_mode" },
+        { "off", "Disabled", 0, AV_OPT_TYPE_CONST,
+            { .i64 =  0 }, INT_MIN, INT_MAX, VE, .unit = "remap_mode" },
+        { "dualrle", "Dual RLE", 0, AV_OPT_TYPE_CONST,
+            { .i64 =  1 }, INT_MIN, INT_MAX, VE, .unit = "remap_mode" },
+        { "flipdualrle", "Dual RLE", 0, AV_OPT_TYPE_CONST,
+            { .i64 =  2 }, INT_MIN, INT_MAX, VE, .unit = "remap_mode" },
+
 
     { NULL }
 };
