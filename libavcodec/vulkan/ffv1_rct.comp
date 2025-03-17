@@ -49,6 +49,17 @@ void bypass_block(in SliceContext sc)
 void transform_sample(ivec2 pos, ivec2 rct_coef)
 {
     ivec4 pix = load_components(pos);
+    pix.b -= offset;
+    pix.r -= offset;
+    pix.g -= (pix.r*rct_coef.x + pix.b*rct_coef.y) >> 2;
+    pix.b += pix.g;
+    pix.r += pix.g;
+    imageStore(dst[0], pos, pix);
+}
+
+void transform_sample(ivec2 pos, ivec2 rct_coef)
+{
+    ivec4 pix = load_components(pos);
     pix.b -= pix.g;
     pix.r -= pix.g;
     pix.g += (pix.r*rct_coef.x + pix.b*rct_coef.y) >> 2;
