@@ -3626,7 +3626,7 @@ libxvid_encoder_deps="libxvid"
 libzvbi_teletext_decoder_deps="libzvbi"
 vapoursynth_demuxer_deps="vapoursynth"
 videotoolbox_suggest="coreservices"
-videotoolbox_deps="corefoundation coremedia corevideo"
+videotoolbox_deps="corefoundation coremedia corevideo VTDecompressionSessionDecodeFrame"
 videotoolbox_encoder_deps="videotoolbox VTCompressionSessionPrepareToEncodeFrames"
 
 # demuxers / muxers
@@ -3741,7 +3741,7 @@ alsa_outdev_deps="alsa"
 avfoundation_indev_deps="avfoundation corevideo coremedia pthreads"
 avfoundation_indev_suggest="coregraphics applicationservices"
 avfoundation_indev_extralibs="-framework Foundation"
-audiotoolbox_outdev_deps="audiotoolbox pthreads"
+audiotoolbox_outdev_deps="audiotoolbox pthreads AudioObjectPropertyAddress"
 audiotoolbox_outdev_extralibs="-framework AudioToolbox -framework CoreAudio"
 caca_outdev_deps="libcaca"
 decklink_deps_any="libdl LoadLibrary"
@@ -6687,6 +6687,7 @@ check_headers termios.h
 check_headers unistd.h
 check_headers valgrind/valgrind.h
 check_func_headers VideoToolbox/VTCompressionSession.h VTCompressionSessionPrepareToEncodeFrames -framework VideoToolbox
+check_func_headers VideoToolbox/VideoToolbox.h VTDecompressionSessionDecodeFrame -framework VideoToolbox
 check_func_headers VideoToolbox/VideoToolbox.h VTPixelTransferSessionCreate -framework VideoToolbox
 check_func_headers VideoToolbox/VideoToolbox.h VTPixelRotationSessionCreate -framework VideoToolbox
 check_headers windows.h
@@ -6726,6 +6727,10 @@ check_apple_framework CoreFoundation
 check_apple_framework CoreMedia
 check_apple_framework CoreVideo
 check_apple_framework CoreAudio
+
+enabled audiotoolbox && {
+    check_type AudioToolbox/AudioToolbox.h AudioObjectPropertyAddress
+}
 
 enabled avfoundation && {
     disable coregraphics applicationservices
