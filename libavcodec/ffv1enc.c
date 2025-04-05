@@ -326,7 +326,7 @@ static void load_plane(FFV1Context *f, FFV1SliceContext *sc,
 {
     int x, y;
 
-    memset(sc->fltmap[remap_index], 0, sizeof(sc->fltmap[remap_index]));
+    memset(sc->fltmap[remap_index], 0, 65536 * sizeof(*sc->fltmap[remap_index]));
 
     for (y = 0; y < h; y++) {
         if (f->bits_per_raw_sample <= 8) {
@@ -570,7 +570,7 @@ int ff_ffv1_encode_determine_slices(AVCodecContext *avctx)
     s->num_v_slices = (avctx->width > 352 || avctx->height > 288 || !avctx->slices) ? 2 : 1;
     s->num_v_slices = FFMIN(s->num_v_slices, max_v_slices);
     for (; s->num_v_slices < 32; s->num_v_slices++) {
-        for (s->num_h_slices = s->num_v_slices; s->num_h_slices < 2*s->num_v_slices; s->num_h_slices++) {
+        for (s->num_h_slices = s->num_v_slices; s->num_h_slices <= 2*s->num_v_slices; s->num_h_slices++) {
             int maxw = (avctx->width  + s->num_h_slices - 1) / s->num_h_slices;
             int maxh = (avctx->height + s->num_v_slices - 1) / s->num_v_slices;
             if (s->num_h_slices > max_h_slices || s->num_v_slices > max_v_slices)
@@ -1003,11 +1003,30 @@ static av_cold int encode_init_internal(AVCodecContext *avctx)
     s->slice_count = s->max_slice_count;
 
     for (int j = 0; j < s->slice_count; j++) {
+        FFV1SliceContext *sc = &s->slices[j];
+
         for (int i = 0; i < s->plane_count; i++) {
             PlaneContext *const p = &s->slices[j].plane[i];
 
             p->quant_table_index = s->context_model;
             p->context_count     = s->context_count[p->quant_table_index];
+        }
+        av_assert0(s->remap_mode >= 0);
+        if (s->remap_mode) {
+            for (int p = 0; p < 1 + 2*s->chroma_planes + s->transparency ; p++) {
+                if (s->bits_per_raw_sample == 32) {
+                    sc->unit[p] = av_malloc_array(sc->slice_width, sc->slice_height * sizeof(**sc->unit));
+                    if (!sc->unit[p])
+                        return AVERROR(ENOMEM);
+                    sc->bitmap[p] = av_malloc_array(sc->slice_width * sc->slice_height, sizeof(*sc->bitmap[p]));
+                    if (!sc->bitmap[p])
+                        return AVERROR(ENOMEM);
+                } else {
+                    sc->fltmap[p] = av_malloc_array(65536, sizeof(*sc->fltmap[p]));
+                    if (!sc->fltmap[p])
+                        return AVERROR(ENOMEM);
+                }
+            }
         }
 
         ff_build_rac_states(&s->slices[j].c, 0.05 * (1LL << 32), 256 - 8);
@@ -1266,8 +1285,8 @@ static int encode_float32_remap_segment(FFV1SliceContext *sc,
     int i = 0;
     int current_mul_index = -1;
     int run1final = 0;
-    int64_t run1start_i;
-    int64_t run1start_last_val;
+    int run1start_i;
+    int run1start_last_val;
     int run1start_mul_index;
 
     memcpy(mul, mul_tab, sizeof(*mul_tab)*(mul_count+1));
@@ -1807,6 +1826,15 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
 static av_cold int encode_close(AVCodecContext *avctx)
 {
     FFV1Context *const s = avctx->priv_data;
+
+    for (int j = 0; j < s->max_slice_count; j++) {
+        FFV1SliceContext *sc = &s->slices[j];
+
+        for(int p = 0; p<4; p++) {
+            av_freep(&sc->unit[p]);
+            av_freep(&sc->bitmap[p]);
+        }
+    }
 
     av_freep(&avctx->stats_out);
     ff_ffv1_close(s);
