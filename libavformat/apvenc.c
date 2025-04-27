@@ -16,21 +16,25 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#ifndef AVFORMAT_CBS_H
-#define AVFORMAT_CBS_H
+#include "libavcodec/apv.h"
 
-#define CBS_PREFIX lavf_cbs
-#define CBS_WRITE 0
-#define CBS_TRACE 0
-#define CBS_APV 0
-#define CBS_H264 0
-#define CBS_H265 0
-#define CBS_H266 0
-#define CBS_JPEG 0
-#define CBS_MPEG2 0
-#define CBS_VP8 0
-#define CBS_VP9 0
+#include "avformat.h"
+#include "mux.h"
 
-#include "libavcodec/cbs.h"
+static int apv_write_packet(AVFormatContext *s, AVPacket *pkt)
+{
+    avio_wb32(s->pb, pkt->size);
+    avio_write(s->pb, pkt->data, pkt->size);
+    return 0;
+}
 
-#endif /* AVFORMAT_CBS_H */
+const FFOutputFormat ff_apv_muxer = {
+    .p.name           = "apv",
+    .p.long_name      = NULL_IF_CONFIG_SMALL("APV raw bitstream"),
+    .p.extensions     = "apv",
+    .p.audio_codec    = AV_CODEC_ID_NONE,
+    .p.video_codec    = AV_CODEC_ID_APV,
+    .p.subtitle_codec = AV_CODEC_ID_NONE,
+    .flags_internal   = FF_OFMT_FLAG_MAX_ONE_OF_EACH,
+    .write_packet     = apv_write_packet,
+};

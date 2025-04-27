@@ -16,21 +16,24 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#ifndef AVFORMAT_CBS_H
-#define AVFORMAT_CBS_H
+#ifndef AVCODEC_APV_DSP_H
+#define AVCODEC_APV_DSP_H
 
-#define CBS_PREFIX lavf_cbs
-#define CBS_WRITE 0
-#define CBS_TRACE 0
-#define CBS_APV 0
-#define CBS_H264 0
-#define CBS_H265 0
-#define CBS_H266 0
-#define CBS_JPEG 0
-#define CBS_MPEG2 0
-#define CBS_VP8 0
-#define CBS_VP9 0
+#include <stddef.h>
+#include <stdint.h>
 
-#include "libavcodec/cbs.h"
 
-#endif /* AVFORMAT_CBS_H */
+typedef struct APVDSPContext {
+    void (*decode_transquant)(void *output,
+                              ptrdiff_t pitch,
+                              const int16_t *input,
+                              const int16_t *qmatrix,
+                              int bit_depth,
+                              int qp_shift);
+} APVDSPContext;
+
+void ff_apv_dsp_init(APVDSPContext *dsp);
+
+void ff_apv_dsp_init_x86_64(APVDSPContext *dsp);
+
+#endif /* AVCODEC_APV_DSP_H */

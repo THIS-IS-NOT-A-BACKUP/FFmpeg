@@ -16,21 +16,29 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#ifndef AVFORMAT_CBS_H
-#define AVFORMAT_CBS_H
+#include "config.h"
+#include "libavutil/attributes.h"
+#include "libavutil/cpu.h"
+#include "libavutil/x86/asm.h"
+#include "libavutil/x86/cpu.h"
+#include "libavcodec/apv_dsp.h"
 
-#define CBS_PREFIX lavf_cbs
-#define CBS_WRITE 0
-#define CBS_TRACE 0
-#define CBS_APV 0
-#define CBS_H264 0
-#define CBS_H265 0
-#define CBS_H266 0
-#define CBS_JPEG 0
-#define CBS_MPEG2 0
-#define CBS_VP8 0
-#define CBS_VP9 0
+#if ARCH_X86_64
 
-#include "libavcodec/cbs.h"
+void ff_apv_decode_transquant_avx2(void *output,
+                                   ptrdiff_t pitch,
+                                   const int16_t *input,
+                                   const int16_t *qmatrix,
+                                   int bit_depth,
+                                   int qp_shift);
 
-#endif /* AVFORMAT_CBS_H */
+av_cold void ff_apv_dsp_init_x86_64(APVDSPContext *dsp)
+{
+    int cpu_flags = av_get_cpu_flags();
+
+    if (EXTERNAL_AVX2_FAST(cpu_flags)) {
+        dsp->decode_transquant = ff_apv_decode_transquant_avx2;
+    }
+}
+
+#endif /* ARCH_X86_64 */
