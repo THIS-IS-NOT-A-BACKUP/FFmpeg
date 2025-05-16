@@ -1,4 +1,6 @@
 /*
+ * Copyright (c) The FFmpeg developers
+ *
  * This file is part of FFmpeg.
  *
  * FFmpeg is free software; you can redistribute it and/or
@@ -16,19 +18,24 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#ifndef AVCODEC_XVIDIDCT_H
-#define AVCODEC_XVIDIDCT_H
+#ifndef FFTOOLS_TEXTFORMAT_TF_MERMAID_H
+#define FFTOOLS_TEXTFORMAT_TF_MERMAID_H
 
-#include <stdint.h>
+typedef enum {
+    AV_DIAGRAMTYPE_GRAPH,
+    AV_DIAGRAMTYPE_ENTITYRELATIONSHIP,
+} AVDiagramType;
 
-#include "avcodec.h"
-#include "idctdsp.h"
+typedef struct AVDiagramConfig {
+    AVDiagramType diagram_type;
+    const char *diagram_css;
+    const char *html_template;
+} AVDiagramConfig;
 
-void ff_xvid_idct(int16_t *const in);
 
-void ff_xvid_idct_init(IDCTDSPContext *c, AVCodecContext *avctx);
+void av_diagram_init(AVTextFormatContext *tfc, AVDiagramConfig *diagram_config);
 
-void ff_xvid_idct_init_x86(IDCTDSPContext *c);
-void ff_xvid_idct_init_mips(IDCTDSPContext *c);
+void av_mermaid_set_html_template(AVTextFormatContext *tfc, const char *html_template);
 
-#endif /* AVCODEC_XVIDIDCT_H */
+
+#endif /* FFTOOLS_TEXTFORMAT_TF_MERMAID_H */

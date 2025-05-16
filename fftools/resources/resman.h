@@ -1,4 +1,6 @@
 /*
+ * Copyright (c) 2025 - softworkz
+ *
  * This file is part of FFmpeg.
  *
  * FFmpeg is free software; you can redistribute it and/or
@@ -16,19 +18,33 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#ifndef AVCODEC_XVIDIDCT_H
-#define AVCODEC_XVIDIDCT_H
+#ifndef FFTOOLS_RESOURCES_RESMAN_H
+#define FFTOOLS_RESOURCES_RESMAN_H
 
 #include <stdint.h>
 
-#include "avcodec.h"
-#include "idctdsp.h"
+#include "config.h"
+#include "fftools/ffmpeg.h"
+#include "libavutil/avutil.h"
+#include "libavutil/bprint.h"
+#include "fftools/textformat/avtextformat.h"
 
-void ff_xvid_idct(int16_t *const in);
+typedef enum {
+    FF_RESOURCE_GRAPH_CSS,
+    FF_RESOURCE_GRAPH_HTML,
+} FFResourceId;
 
-void ff_xvid_idct_init(IDCTDSPContext *c, AVCodecContext *avctx);
+typedef struct FFResourceDefinition {
+    FFResourceId resource_id;
+    const char *name;
 
-void ff_xvid_idct_init_x86(IDCTDSPContext *c);
-void ff_xvid_idct_init_mips(IDCTDSPContext *c);
+    const unsigned char *data;
+    const unsigned *data_len;
 
-#endif /* AVCODEC_XVIDIDCT_H */
+} FFResourceDefinition;
+
+void ff_resman_uninit(void);
+
+char *ff_resman_get_string(FFResourceId resource_id);
+
+#endif /* FFTOOLS_RESOURCES_RESMAN_H */

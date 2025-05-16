@@ -1,4 +1,6 @@
 /*
+ * Copyright (c) 2018-2025 - softworkz
+ *
  * This file is part of FFmpeg.
  *
  * FFmpeg is free software; you can redistribute it and/or
@@ -16,19 +18,13 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#ifndef AVCODEC_XVIDIDCT_H
-#define AVCODEC_XVIDIDCT_H
+#ifndef FFTOOLS_GRAPH_GRAPHPRINT_H
+#define FFTOOLS_GRAPH_GRAPHPRINT_H
 
-#include <stdint.h>
+#include "fftools/ffmpeg.h"
 
-#include "avcodec.h"
-#include "idctdsp.h"
+int print_filtergraphs(FilterGraph **graphs, int nb_graphs, InputFile **ifiles, int nb_ifiles, OutputFile **ofiles, int nb_ofiles);
 
-void ff_xvid_idct(int16_t *const in);
+int print_filtergraph(FilterGraph *fg, AVFilterGraph *graph);
 
-void ff_xvid_idct_init(IDCTDSPContext *c, AVCodecContext *avctx);
-
-void ff_xvid_idct_init_x86(IDCTDSPContext *c);
-void ff_xvid_idct_init_mips(IDCTDSPContext *c);
-
-#endif /* AVCODEC_XVIDIDCT_H */
+#endif /* FFTOOLS_GRAPH_GRAPHPRINT_H */
