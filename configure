@@ -419,7 +419,7 @@ Toolchain options:
   --host-os=OS             compiler host OS [$target_os]
   --extra-cflags=ECFLAGS   add ECFLAGS to CFLAGS [$CFLAGS]
   --extra-cxxflags=ECFLAGS add ECFLAGS to CXXFLAGS [$CXXFLAGS]
-  --extra-objcflags=FLAGS  add FLAGS to OBJCFLAGS [$CFLAGS]
+  --extra-objcflags=FLAGS  add FLAGS to OBJCFLAGS [$OBJCFLAGS]
   --extra-ldflags=ELDFLAGS add ELDFLAGS to LDFLAGS [$LDFLAGS]
   --extra-ldexeflags=ELDFLAGS add ELDFLAGS to LDEXEFLAGS [$LDEXEFLAGS]
   --extra-ldsoflags=ELDFLAGS add ELDFLAGS to LDSOFLAGS [$LDSOFLAGS]
@@ -1092,7 +1092,7 @@ test_objcc(){
     log test_objcc "$@"
     cat > $TMPM
     log_file $TMPM
-    test_cmd $objcc -Werror=missing-prototypes $CPPFLAGS $OBJCFLAGS "$@" $OBJCC_C $(cc_o $TMPO) $TMPM
+    test_cmd $objcc -Werror=missing-prototypes $CPPFLAGS $CFLAGS $OBJCFLAGS "$@" $OBJCC_C $(cc_o $TMPO) $TMPM
 }
 
 test_nvcc(){
@@ -3076,9 +3076,9 @@ mdec_decoder_select="blockdsp bswapdsp idctdsp"
 media100_decoder_select="media100_to_mjpegb_bsf mjpegb_decoder"
 metasound_decoder_select="lsp sinewin"
 mimic_decoder_select="blockdsp bswapdsp hpeldsp idctdsp"
-mjpeg_decoder_select="blockdsp hpeldsp idctdsp jpegtables"
+mjpeg_decoder_select="blockdsp idctdsp jpegtables"
 mjpeg_encoder_select="jpegtables mpegvideoenc"
-mjpegb_decoder_select="mjpeg_decoder"
+mjpegb_decoder_select="hpeldsp mjpeg_decoder"
 mlp_decoder_select="mlp_parser"
 mlp_encoder_select="lpc audio_frame_queue"
 mobiclip_decoder_select="bswapdsp golomb"
@@ -4298,6 +4298,7 @@ VERSION_SCRIPT_POSTPROCESS_CMD="cat"
 
 asflags_filter=echo
 cflags_filter=echo
+objcflags_filter=echo
 ldflags_filter=echo
 
 AS_C='-c'
@@ -5957,7 +5958,7 @@ case $target_os in
         enabled x86_32 && append SHFLAGS -Wl,-read_only_relocs,suppress
         strip="${strip} -x"
         add_ldflags -Wl,-dynamic,-search_paths_first
-        check_cflags -Werror=partial-availability
+        check_allcflags -Werror=partial-availability
         SLIBSUF=".dylib"
         SLIBNAME_WITH_VERSION='$(SLIBPREF)$(FULLNAME).$(LIBVERSION)$(SLIBSUF)'
         SLIBNAME_WITH_MAJOR='$(SLIBPREF)$(FULLNAME).$(LIBMAJOR)$(SLIBSUF)'
