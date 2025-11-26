@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 Paul B Mahol
+ * Copyright (c) 2025 Lynne <dev@lynne.ee>
  *
  * This file is part of FFmpeg.
  *
@@ -18,24 +18,34 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include "libavutil/attributes.h"
-#include "libavutil/cpu.h"
-#include "libavutil/x86/cpu.h"
-#include "libavfilter/f_ebur128.h"
-
-void ff_ebur128_filter_channels_avx(const EBUR128DSPContext *, const double *,
-                                    double *, double *, double *, double *, int);
-
-double ff_ebur128_find_peak_2ch_avx(double *, int, const double *, int);
-
-av_cold void ff_ebur128_init_x86(EBUR128DSPContext *dsp, int nb_channels)
+TYPE read_data(uint off)
 {
-    int cpu_flags = av_get_cpu_flags();
+#ifdef BIG_ENDIAN
+    return TYPE_REVERSE(data[off]);
+#else
+    return data[off];
+#endif
+}
 
-    if (ARCH_X86_64 && EXTERNAL_AVX(cpu_flags)) {
-        if (nb_channels >= 2)
-            dsp->filter_channels = ff_ebur128_filter_channels_avx;
-        if (nb_channels == 2)
-            dsp->find_peak = ff_ebur128_find_peak_2ch_avx;
+void main(void)
+{
+    ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
+    if (!IS_WITHIN(pos, imageSize(dst[0])))
+        return;
+
+    uint offs = (pos.y*imageSize(dst[0]).x + pos.x)*COMPONENTS;
+#if NB_IMAGES == 1
+    TYPE_VEC val;
+    for (int i = 0; i < COMPONENTS; i++)
+        val[i] = read_data(offs + i);
+    val >>= SHIFT;
+    imageStore(dst[0], pos, val);
+#else
+    const ivec4 fmt_lut = ivec4(2, 0, 1, 3);
+    for (int i = 0; i < COMPONENTS; i++) {
+        TYPE val = read_data(offs + i);
+        val >>= SHIFT;
+        imageStore(dst[fmt_lut[i]], pos, TYPE_VEC(val));
     }
+#endif
 }
