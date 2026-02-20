@@ -1,7 +1,7 @@
 /*
- * JPEG-LS decoder
- * Copyright (c) 2003 Michael Niedermayer
- * Copyright (c) 2006 Konstantin Shishkov
+ * FFv1 codec
+ *
+ * Copyright (c) 2026 Lynne <dev@lynne.ee>
  *
  * This file is part of FFmpeg.
  *
@@ -20,22 +20,11 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-/**
- * @file
- * JPEG-LS decoder.
- */
+#pragma shader_stage(compute)
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_shader_image_load_formatted : require
 
-#ifndef AVCODEC_JPEGLSDEC_H
-#define AVCODEC_JPEGLSDEC_H
+layout (set = 1, binding = 5) writeonly uniform uimage2D dst[];
 
-#include "mjpeg.h"
-#include "mjpegdec.h"
-
-/**
- * Decode LSE block with initialization parameters
- */
-int ff_jpegls_decode_lse(MJpegDecodeContext *s);
-
-int ff_jpegls_decode_picture(MJpegDecodeContext *s);
-
-#endif /* AVCODEC_JPEGLSDEC_H */
+#define RGB
+#include "ffv1_dec.comp.glsl"
