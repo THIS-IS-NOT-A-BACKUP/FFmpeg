@@ -5224,6 +5224,7 @@ msvc_common_flags(){
             -LARGEADDRESSAWARE)   echo $flag ;;
             -L*) [ "$_flags_type" != "link" ] || echo -libpath:${flag#-L} ;;
             -I*) [ "$_flags_type" = "link" ] || echo $flag ;;
+            -D*) [ "$_flags_type" = "link" ] || echo $flag ;;
             -Wl,*)                ;;
             *)                    echo $flag ;;
         esac
@@ -8173,8 +8174,8 @@ elif enabled gcc; then
     enabled extra_warnings || check_disable_warning -Wno-maybe-uninitialized
     if enabled x86_32; then
         case $target_os in
-        *bsd*)
-            # BSDs don't guarantee a 16 byte aligned stack, but we can
+        *bsd*|mingw*|win*|cygwin*)
+            # These targets don't guarantee a 16 byte aligned stack, but we can
             # request GCC to try to maintain 16 byte alignment throughout
             # function calls. Library entry points that might call assembly
             # functions align the stack. (The parameter means 2^4 bytes.)
@@ -8871,7 +8872,7 @@ if enabled checkasm; then
 #define CHECKASM_VERSION "1.2.0"
 EOF
 
-    print_config HAVE_ "$TMPH" elf_aux_info getauxval ioctl isatty linux_perf pthread_np_h pthread_setaffinity_np sigaction siglongjmp clock_gettime prctl
+    print_config HAVE_ "$TMPH" elf_aux_info getauxval ioctl isatty linux_perf pthread_np_h pthread_setaffinity_np sigaction siglongjmp clock_gettime prctl stdbit_h
 
     if enabled aarch64; then
         print_config HAVE_ "$TMPH" as_archext_sve_directive sve
