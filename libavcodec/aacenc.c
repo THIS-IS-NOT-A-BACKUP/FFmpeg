@@ -1415,6 +1415,15 @@ static int aac_encode_frame(AVCodecContext *avctx, AVPacket *avpkt,
     ff_af_queue_remove(&s->afq, avctx->frame_size, &avpkt->pts,
                        &avpkt->duration);
 
+    int discard_padding = avctx->frame_size - ff_samples_from_time_base(avctx, avpkt->duration);
+    if (discard_padding > 0) {
+        uint8_t *side_data =
+            av_packet_new_side_data(avpkt, AV_PKT_DATA_SKIP_SAMPLES, 10);
+        if (!side_data)
+            return AVERROR(ENOMEM);
+        AV_WL32(side_data + 4, discard_padding);
+    }
+
     avpkt->flags |= AV_PKT_FLAG_KEY;
 
     *got_packet_ptr = 1;
@@ -1589,8 +1598,8 @@ static av_cold int aac_encode_init(AVCodecContext *avctx)
         /* For NMR, the rate to bandwidth conversion was tuned to maximize metrics
          * over a variable cutoff x bitrate combo */
         if (s->options.coder == AAC_CODER_NMR && frame_br >= 32000) {
-            static const int rates[] = { 32000, 48000, 64000, 96000 };
-            static const int bws[]   = { 14000, 15000, 16000, 18000 };
+            static const int rates[] = { 32000, 48000, 64000, 96000, 192000 };
+            static const int bws[]   = { 14000, 15000, 16000, 18000, 20000 };
             int bw_i = 0;
             for (; bw_i < FF_ARRAY_ELEMS(rates) - 2 && frame_br > rates[bw_i + 1]; bw_i++);
             s->bandwidth = bws[bw_i] + (int)((int64_t)(bws[bw_i + 1] - bws[bw_i]) *
