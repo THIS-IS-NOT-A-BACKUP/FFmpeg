@@ -16,5 +16,11 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
-#include "cbs_av1.h"
-#include "libavcodec/cbs_av1.c"
+#ifndef AVCODEC_RISCV_FDCT_H
+#define AVCODEC_RISCV_FDCT_H
+
+#include <stdint.h>
+
+void ff_fdct_rvv(int16_t *block);
+
+#endif /* AVCODEC_RISCV_FDCT_H */
