@@ -1132,10 +1132,19 @@ static int mov_read_dec3(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     enum AVAudioServiceType *ast;
     int eac3info, acmod, lfeon, bsmod;
     uint64_t mask;
+    int ret;
 
     if (c->fc->nb_streams < 1)
         return 0;
     st = c->fc->streams[c->fc->nb_streams-1];
+
+    /* Preserve the complete EC3SpecificBox payload, including optional
+     * extensions such as E-AC-3 JOC signaling. */
+    if (atom.size < 5 || (uint64_t)atom.size > (1 << 30))
+        return AVERROR_INVALIDDATA;
+    ret = ff_get_extradata(c->fc, st->codecpar, pb, atom.size);
+    if (ret < 0)
+        return ret;
 
     sd = av_packet_side_data_new(&st->codecpar->coded_side_data,
                                  &st->codecpar->nb_coded_side_data,
@@ -1146,11 +1155,7 @@ static int mov_read_dec3(MOVContext *c, AVIOContext *pb, MOVAtom atom)
 
     ast = (enum AVAudioServiceType*)sd->data;
 
-    /* No need to parse fields for additional independent substreams and its
-     * associated dependent substreams since libavcodec's E-AC-3 decoder
-     * does not support them yet. */
-    avio_rb16(pb); /* data_rate and num_ind_sub */
-    eac3info = avio_rb24(pb);
+    eac3info = AV_RB24(st->codecpar->extradata + 2);
     bsmod = (eac3info >> 12) & 0x1f;
     acmod = (eac3info >>  9) & 0x7;
     lfeon = (eac3info >>  8) & 0x1;
@@ -1917,6 +1922,8 @@ static int update_frag_index(MOVContext *c, int64_t offset)
     if (index < c->frag_index.nb_items)
         memmove(c->frag_index.item + index + 1, c->frag_index.item + index,
                 (c->frag_index.nb_items - index) * sizeof(*c->frag_index.item));
+    if (index <= c->frag_index.current)
+        c->frag_index.current++;
 
     item = &c->frag_index.item[index];
     item->headers_read = 0;
@@ -6208,7 +6215,6 @@ static int mov_read_trun(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     int64_t prev_dts = AV_NOPTS_VALUE;
     int next_frag_index = -1, index_entry_pos;
     size_t requested_size;
-    size_t old_allocated_size;
     AVIndexEntry *new_entries;
     MOVFragmentStreamInfo * frag_stream_info;
 
@@ -6359,7 +6365,6 @@ static int mov_read_trun(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     sti->index_entries= new_entries;
 
     requested_size = (sti->nb_index_entries + entries) * sizeof(*sc->tts_data);
-    old_allocated_size = sc->tts_allocated_size;
     tts_data = av_fast_realloc(sc->tts_data, &sc->tts_allocated_size,
                                 requested_size);
     if (!tts_data)
@@ -6369,8 +6374,9 @@ static int mov_read_trun(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     // In case there were samples without time to sample entries, ensure they get
     // zero valued entries. This ensures clips which mix boxes with and
     // without time to sample entries don't pickup uninitialized data.
-    memset((uint8_t*)(sc->tts_data) + old_allocated_size, 0,
-           sc->tts_allocated_size - old_allocated_size);
+    if (sc->tts_count < sti->nb_index_entries)
+        memset(sc->tts_data + sc->tts_count, 0,
+               sizeof(*sc->tts_data) * (sti->nb_index_entries - sc->tts_count));
 
     if (index_entry_pos < sti->nb_index_entries) {
         // Make hole in index_entries and tts_data for new samples
@@ -6380,7 +6386,7 @@ static int mov_read_trun(MOVContext *c, AVIOContext *pb, MOVAtom atom)
                 (sti->nb_index_entries - index_entry_pos));
         memmove(sc->tts_data + index_entry_pos + entries,
                 sc->tts_data + index_entry_pos,
-                sizeof(*sc->tts_data) * (sc->tts_count - index_entry_pos));
+                sizeof(*sc->tts_data) * (sti->nb_index_entries - index_entry_pos));
         if (index_entry_pos < sc->current_sample) {
             sc->current_sample += entries;
         }
@@ -9621,6 +9627,14 @@ static int mov_read_iinf(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     if (entry_count > atom.size)
         return AVERROR_INVALIDDATA;
 
+    /* account for the version/flags/entry_count fields already consumed,
+     * so the per-entry loop below can bound each infe box by what is
+     * actually left in this iinf box, the same way mov_read_iprp() bounds
+     * ipco/ipma entries by the remaining iprp size. */
+    atom.size -= version ? 8 : 6;
+    if (atom.size < 0)
+        return AVERROR_INVALIDDATA;
+
     heif_item = av_realloc_array(c->heif_item, FFMAX(entry_count, c->nb_heif_item), sizeof(*c->heif_item));
     if (!heif_item)
         return AVERROR(ENOMEM);
@@ -9633,12 +9647,17 @@ static int mov_read_iinf(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     for (i = 0; i < entry_count; i++) {
         MOVAtom infe;
 
-        infe.size = avio_rb32(pb) - 8;
+        infe.size = avio_rb32(pb);
         infe.type = avio_rl32(pb);
-        if (avio_feof(pb)) {
+        if (avio_feof(pb) || infe.size < 8 || infe.size > atom.size ||
+            infe.type != MKTAG('i','n','f','e')) {
             ret = AVERROR_INVALIDDATA;
             goto fail;
         }
+
+        atom.size -= infe.size;
+        infe.size -= 8;
+
         ret = mov_read_infe(c, pb, infe);
         if (ret < 0)
             goto fail;
@@ -9917,9 +9936,10 @@ static int mov_read_iprp(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     a.size = avio_rb32(pb);
     a.type = avio_rl32(pb);
 
-    if (a.size < 8 || a.type != MKTAG('i','p','c','o'))
+    if (a.size < 8 || a.size > atom.size || a.type != MKTAG('i','p','c','o'))
         return AVERROR_INVALIDDATA;
 
+    atom.size -= a.size;
     a.size -= 8;
     while (a.size >= 8) {
         MOVAtoms *ref = av_dynarray2_add((void**)&atoms, &nb_atoms, sizeof(MOVAtoms), NULL);
@@ -9938,8 +9958,9 @@ static int mov_read_iprp(MOVContext *c, AVIOContext *pb, MOVAtom atom)
             goto fail;
         }
         av_log(c->fc, AV_LOG_TRACE, "ipco: index %d, box type %s\n", nb_atoms, av_fourcc2str(ref->type));
-        avio_seek(pb, -8, SEEK_CUR);
-        if (avio_read(pb, ref->data, ref->size) != ref->size) {
+        AV_WB32(ref->data, ref->size);
+        AV_WL32(ref->data + 4, ref->type);
+        if (avio_read(pb, ref->data + 8, ref->size - 8) != ref->size - 8) {
             ret = AVERROR_INVALIDDATA;
             goto fail;
         }
@@ -9955,7 +9976,7 @@ static int mov_read_iprp(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     a.size = avio_rb32(pb);
     a.type = avio_rl32(pb);
 
-    if (a.size < 8 || a.type != MKTAG('i','p','m','a')) {
+    if (a.size < 16 || a.size > atom.size || a.type != MKTAG('i','p','m','a')) {
         ret = AVERROR_INVALIDDATA;
         goto fail;
     }
@@ -9963,12 +9984,14 @@ static int mov_read_iprp(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     version = avio_r8(pb);
     flags   = avio_rb24(pb);
     count   = avio_rb32(pb);
+    a.size -= 16;
 
     for (int i = 0; i < count; i++) {
         int item_id = version ? avio_rb32(pb) : avio_rb16(pb);
         int assoc_count = avio_r8(pb);
 
-        if (avio_feof(pb)) {
+        a.size -= (version ? 5 : 3) + assoc_count * (1 + (flags & 1));
+        if (avio_feof(pb) || a.size < 0) {
             ret = AVERROR_INVALIDDATA;
             goto fail;
         }
@@ -9980,7 +10003,9 @@ static int mov_read_iprp(MOVContext *c, AVIOContext *pb, MOVAtom atom)
                 index <<= 8;
                 index |= avio_r8(pb);
             }
-            if (index > nb_atoms || index <= 0) {
+            if (!index)
+                continue;
+            if (index > nb_atoms) {
                 ret = AVERROR_INVALIDDATA;
                 goto fail;
             }
