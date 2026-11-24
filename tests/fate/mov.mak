@@ -56,6 +56,11 @@ fate-mov-vpcc-reserved-color-tags: CMD = run ffprobe$(PROGSSUF)$(EXESUF) -v erro
 FATE_MOV-$(call DEMDEC, MOV, RAWVIDEO) += fate-mov-uncv-rgb24
 fate-mov-uncv-rgb24: CMD = framecrc -i $(TARGET_SAMPLES)/mov/uncv-rgb24.mp4
 
+# Qclp with a version 0 sound description, no frame size stored;
+# 30 packets cross the first 25-packet chunk
+FATE_MOV-$(call DEMMUX, MOV, FRAMECRC, PIPE_PROTOCOL) += fate-mov-qclp-stsd-v0
+fate-mov-qclp-stsd-v0: CMD = framecrc -i $(TARGET_SAMPLES)/mov/clip43qt3-hi.mov -map 0:a -c copy -frames:a 30
+
 FATE_MOV_FFPROBE-$(CONFIG_MOV_DEMUXER) += fate-ffprobe-stream-entries-tmcd \
                                        fate-ffprobe-group-stream-entries-tmcd \
                                        fate-ffprobe-show-groups-tmcd
@@ -168,9 +173,21 @@ fate-mov-aac-2048-priming-preroll: CMD = run ffprobe$(PROGSSUF)$(EXESUF) -show_e
 FATE_MOV_FFPROBE-$(call DEMDEC, MOV, AAC) += fate-mov-aac-2048-priming-seek-landing
 fate-mov-aac-2048-priming-seek-landing: CMD = run ffprobe$(PROGSSUF)$(EXESUF) -seek_flags preroll -read_intervals 2.3%+\#3 -show_entries packet=pts,dts,duration -print_format compact $(TARGET_SAMPLES)/mov/aac-2048-priming.mov
 
+# HE-AAC whose track clock is the core rate, half the output rate.
+FATE_MOV_FFPROBE-$(call DEMDEC, MOV, AAC) += fate-mov-aac-he-core-rate-priming
+fate-mov-aac-he-core-rate-priming: CMD = run ffprobe$(PROGSSUF)$(EXESUF) -show_entries stream=sample_rate,time_base,initial_padding -print_format compact $(TARGET_SAMPLES)/audiomatch/tones_fdkaac_44100_stereo_aac_he.m4a
+
+# The edit starts 64 core ticks into the third packet.
+FATE_MOV_FFPROBE-$(call DEMDEC, MOV, AAC) += fate-mov-aac-he-core-rate-mid-packet
+fate-mov-aac-he-core-rate-mid-packet: CMD = run ffprobe$(PROGSSUF)$(EXESUF) -read_intervals %+\#3 -show_entries frame=pts,nb_samples -print_format compact $(TARGET_SAMPLES)/aac/sbr_edit_end.mp4
+
 # Seeking into the stream must not drop samples to the container's priming.
 FATE_MOV-$(call FRAMECRC, MOV, AAC, PCM_S16LE_ENCODER ARESAMPLE_FILTER VOLUME_FILTER) += fate-mov-aac-2048-priming-seek
 fate-mov-aac-2048-priming-seek: CMD = framecrc -ss 2.3 -t 0.15 -i $(TARGET_SAMPLES)/mov/aac-2048-priming.mov -af volume=0,aresample -c:a pcm_s16le
+
+# Dual-rate low-delay SBR ELD: check the output rate independently of edit-list trimming.
+FATE_MOV-$(call DEMMUX, MOV, FRAMECRC, PIPE_PROTOCOL) += fate-mov-aac-eld-dual-rate
+fate-mov-aac-eld-dual-rate: CMD = framecrc -nofind_stream_info -ignore_editlist 1 -i $(TARGET_SAMPLES)/mov/aac-eld-dual-rate.mp4 -c:a copy
 
 fate-mov-zombie: CMD = run ffprobe$(PROGSSUF)$(EXESUF) -show_streams -show_packets -show_frames -bitexact -print_format compact $(TARGET_SAMPLES)/mov/white_zombie_scrunch-part.mov
 
@@ -263,6 +280,18 @@ $(eval $(call FATE_MOV_CENC_TEST,h264,H264,h264,H264,h264-conformance/CAMACI3_So
 $(eval $(call FATE_MOV_CENC_TEST,h264_iso,H264,matroska,MATROSKA,h264/dts_5frames.mkv))
 $(eval $(call FATE_MOV_CENC_TEST,hevc,HEVC,hevc,HEVC,hevc-conformance/ipcm_A_NEC_3.bit))
 $(eval $(call FATE_MOV_CENC_TEST,hevc_iso,HEVC,mov,MOV,hevc/extradata-reload-multi-stsd.mov))
+
+# Two encrypted tracks sharing each moof.
+FATE_MOV_FFMPEG_SAMPLES-$(call REMUX, MP4 MOV, AAC_DECODER) += fate-mov-aac-cenc-frag-2tracks
+fate-mov-aac-cenc-frag-2tracks: CMD = transcode mp4 $(TARGET_SAMPLES)/aac/al04_44.mp4 mp4 \
+  "-map 0:a -map 0:a -t 0.2 -c:a copy -movflags +empty_moov -frag_duration 50000 -encryption_scheme cenc-aes-ctr -encryption_key 00112233445566778899aabbccddeeff -encryption_kid 00112233445566778899aabbccddeeff" \
+  "-map 0:a -c copy" "" "" "-decryption_key 00112233445566778899aabbccddeeff"
+
+# The empty moov written by delay_moov must not count the buffered audio.
+FATE_MOV_FFMPEG_FFPROBE-$(call ALLYES, PCM_S16LE_DECODER PCM_S16LE_ENCODER WAV_DEMUXER MOV_MUXER MOV_DEMUXER FRAMECRC_MUXER FILE_PROTOCOL PIPE_PROTOCOL) += fate-mov-pcm-delay-moov
+fate-mov-pcm-delay-moov: tests/data/asynth-44100-2.wav
+fate-mov-pcm-delay-moov: CMD = transcode wav $(TARGET_PATH)/tests/data/asynth-44100-2.wav mov \
+  "-t 0.05 -c:a pcm_s16le -movflags +delay_moov -frag_duration 25000" "-c:a copy" "-show_entries stream=duration_ts,nb_frames"
 
 # avif muxing - still image with 1 item.
 FATE_MOV_FFMPEG_SAMPLES-$(call REMUX, AVIF OBU, AV1_DECODER AV1_PARSER) \
@@ -436,6 +465,12 @@ FATE_MOV_FFMPEG-$(call TRANSCODE, PCM_F32LE, MP4 MOV, WAV_DEMUXER PAN_FILTER) \
 fate-mov-mp4-pcm-float: tests/data/asynth-44100-1.wav
 fate-mov-mp4-pcm-float: CMD = transcode wav $(TARGET_PATH)/tests/data/asynth-44100-1.wav mp4 "-af aresample,pan=FR+FL+FR|c0=c0|c1=c0|c2=c0 -c:a pcm_f32le" "-map 0 -c copy -frames:a 0"
 
+# Test IMA4 above 65535 Hz, in a version 2 sound description
+FATE_MOV_FFMPEG-$(call REMUX, MOV, ADPCM_IMA_QT_ENCODER WAV_DEMUXER PCM_S16LE_DECODER ARESAMPLE_FILTER) \
+                          += fate-mov-ima4-96k
+fate-mov-ima4-96k: tests/data/asynth-96000-1.wav
+fate-mov-ima4-96k: CMD = transcode wav $(TARGET_PATH)/tests/data/asynth-96000-1.wav mov "-af aresample -t 0.002 -c:a adpcm_ima_qt" "-c copy"
+
 fate-mov-pcm-remux: tests/data/asynth-44100-1.wav
 fate-mov-pcm-remux: CMD = md5 -i $(TARGET_PATH)/tests/data/asynth-44100-1.wav -map 0 -c copy -fflags +bitexact -f mp4
 fate-mov-pcm-remux: CMP = oneline
@@ -479,6 +514,28 @@ fate-mov-3gp-udta-metadata: CMD = transcode lavfi "color=s=32x32:r=1:d=1" 3gp \
      -metadata genre-eng=Genre -metadata comment-eng=Comment -metadata album-eng=Album \
      -metadata copyright-eng=Copyright" \
     "-c copy" "-show_entries format_tags"
+
+# yuv2 defaults to full range BT.601; a colr matrix or a decoder option still takes precedence.
+MOV_YUV2_FILTERS = COLOR FORMAT SCALE
+FATE_MOV_FFMPEG_FFPROBE-$(call FILTERDEMDECENCMUX, $(MOV_YUV2_FILTERS), MOV, RAWVIDEO, RAWVIDEO, MOV) \
+    += fate-mov-yuv2-color-default fate-mov-yuv2-color-range
+FATE_MOV_FFMPEG_FFPROBE-$(call FILTERDEMDECENCMUX, $(MOV_YUV2_FILTERS) SETPARAMS, MOV, RAWVIDEO, RAWVIDEO, MOV) \
+    += fate-mov-yuv2-color-colr
+
+MOV_YUV2_SRC = color=c=black:s=32x32:r=1:d=1,format=yuv422p
+MOV_YUV2_COLR_SRC = $(MOV_YUV2_SRC),setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709
+MOV_YUV2_GEN = $(FFMPEG) -nostdin -v error -filter_complex $(1) \
+    -pix_fmt yuyv422 -color_range pc -c:v rawvideo -tag:v yuv2 \
+    -threads 1 -flags +bitexact -fflags +bitexact -f mov -y
+MOV_YUV2_PROBE = ffprobe$(PROGSSUF)$(EXESUF) -v error -bitexact \
+    -show_entries frame=color_range,color_space -of default=nw=1
+
+fate-mov-yuv2-color-default: CMD = run_with_temp \
+    "$(call MOV_YUV2_GEN,$(MOV_YUV2_SRC))" "$(MOV_YUV2_PROBE)" mov
+fate-mov-yuv2-color-colr: CMD = run_with_temp \
+    "$(call MOV_YUV2_GEN,$(MOV_YUV2_COLR_SRC))" "$(MOV_YUV2_PROBE)" mov
+fate-mov-yuv2-color-range: CMD = run_with_temp \
+    "$(call MOV_YUV2_GEN,$(MOV_YUV2_SRC))" "$(MOV_YUV2_PROBE) -color_range tv" mov
 
 FATE_MOV_FFMPEG_FFPROBE-$(call ALLYES, COLOR_FILTER SETPTS_FILTER MPEG4_ENCODER \
                                       MOV_MUXER MOV_DEMUXER FILE_PROTOCOL)      \

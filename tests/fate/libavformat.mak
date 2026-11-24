@@ -101,6 +101,14 @@ FATE_LIBAVFORMAT-yes += fate-url
 fate-url: libavformat/tests/url$(EXESUF)
 fate-url: CMD = run libavformat/tests/url$(EXESUF)
 
+FATE_LIBAVFORMAT-$(call ALLYES, HLS_MUXER MP4_MUXER) += fate-hlsenc-filenames
+fate-hlsenc-filenames: libavformat/tests/hlsenc$(EXESUF)
+fate-hlsenc-filenames: CMD = run libavformat/tests/hlsenc$(EXESUF)
+
+FATE_LIBAVFORMAT-$(call ALLYES, HLS_MUXER MP4_MUXER FILE_PROTOCOL) += fate-hlsenc-file-filenames
+fate-hlsenc-file-filenames: libavformat/tests/hlsenc$(EXESUF)
+fate-hlsenc-file-filenames: CMD = run libavformat/tests/hlsenc$(EXESUF) file
+
 FATE_LIBAVFORMAT-$(CONFIG_IMF_DEMUXER) += fate-imf
 fate-imf: libavformat/tests/imf$(EXESUF)
 fate-imf: CMD = run libavformat/tests/imf$(EXESUF)
@@ -113,6 +121,12 @@ FATE_LIBAVFORMAT += fate-seek_utils
 fate-seek_utils: libavformat/tests/seek_utils$(EXESUF)
 fate-seek_utils: CMD = run libavformat/tests/seek_utils$(EXESUF)
 
+FATE_LIBAVFORMAT_SAMPLES-$(call ALLYES, AVFORMAT AC3_PARSER AC3_DECODER) += fate-parse-skip-samples
+fate-parse-skip-samples: libavformat/tests/parse_skip_samples$(EXESUF)
+fate-parse-skip-samples: CMD = run libavformat/tests/parse_skip_samples$(EXESUF) $(TARGET_SAMPLES)/ac3/millers_crossing_4.0.ac3
+
+FATE_EXTERN += $(FATE_LIBAVFORMAT_SAMPLES-yes)
+
 FATE_LIBAVFORMAT += $(FATE_LIBAVFORMAT-yes)
 FATE-$(CONFIG_AVFORMAT) += $(FATE_LIBAVFORMAT)
-fate-libavformat: $(FATE_LIBAVFORMAT)
+fate-libavformat: $(FATE_LIBAVFORMAT) $(if $(SAMPLES),$(FATE_LIBAVFORMAT_SAMPLES-yes))
