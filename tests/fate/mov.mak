@@ -326,6 +326,12 @@ FATE_MOV_FFMPEG_FFPROBE_SAMPLES-$(call FRAMECRC, MOV, AV1, AV1_PARSER) \
 fate-mov-avif-demux-still-image-alpha-grid: CMD = stream_demux mov $(TARGET_SAMPLES)/avif/gain_map_alpha_grid.avif "-c:v av1" "-c:v copy -map 0:g:0 -map 0:g:1" \
   "-of compact -show_entries stream_group=index,id,nb_streams,type:stream_group_components:stream_group_disposition:stream_group_tags:stream_group_side_data:stream_group_stream=index,id:stream_group_stream_disposition:stream_group_stream_side_data_list"
 
+# avif demuxing - grid items whose single idat extent uses an implied length, plus an mdat image item whose extent also uses an implied length.
+FATE_MOV_FFMPEG_FFPROBE_SAMPLES-$(call FRAMECRC, MOV, AV1, AV1_PARSER) \
+                           += fate-mov-avif-demux-implied-extent
+fate-mov-avif-demux-implied-extent: CMD = stream_demux mov $(TARGET_SAMPLES)/avif/implied_grid.avif "-c:v av1" "-c:v copy -map 0:24" \
+  "-of compact -show_entries stream_group=index,id,nb_streams,type:stream_group_components:stream_group_stream=index,id,width,height"
+
 # avif item with extents across two mdat boxes, read through the root-parsing path.
 FATE_MOV_FFMPEG_SAMPLES-$(call FRAMECRC, MOV, AV1, AV1_PARSER) \
                            += fate-mov-avif-demux-item-two-mdats
@@ -455,6 +461,21 @@ fate-mov-mp4-mpegh-5_1_4: CMD = stream_demux mp4 $(TARGET_SAMPLES)/mov/mpegh_lay
 FATE_MOV_FFMPEG_FFPROBE_SAMPLES-$(call REMUX, MP4 MOV) += fate-mov-mp4-mpegh-5_1_4-copy
 fate-mov-mp4-mpegh-5_1_4-copy: CMD = stream_remux mp4 $(TARGET_SAMPLES)/mov/mpegh_layout16.mp4 "" mp4 "" "" "-c:a copy" "-show_entries stream=profile,level,codec_tag_string"
 
+# The 1080-line DV bitstream does not signal progressive frames: keep dvh2.
+FATE_MOV_FFMPEG_FFPROBE_SAMPLES-$(call ALLYES, FFMPEG FFPROBE MOV_MUXER MOV_DEMUXER FILE_PROTOCOL) += fate-mov-dv-tag-copy-1080p25
+fate-mov-dv-tag-copy-1080p25: CMD = run_with_temp \
+    "$(FFMPEG) -nostdin -v error -i $(TARGET_SAMPLES)/dv/dvcprohd_1080p25.mov -map 0:v -write_tmcd 0 -c copy -f mov -y" \
+    "ffprobe$(PROGSSUF)$(EXESUF) -v error -bitexact -show_data_hash CRC32 \
+    -show_entries packet=size,data_hash:stream=codec_tag_string -of compact=p=0" mov
+
+# The first packet must correct the provisional 60 Hz tag before the moov.
+FATE_MOV_FFMPEG_FFPROBE_SAMPLES-$(call ALLYES, FFMPEG FFPROBE MOV_MUXER MOV_DEMUXER FILE_PROTOCOL) += fate-mov-dv-tag-delay-720p50
+fate-mov-dv-tag-delay-720p50: CMD = run_with_temp \
+    "$(FFMPEG) -nostdin -v error -nofind_stream_info -i $(TARGET_SAMPLES)/dv/dvcprohd_720p50.mov \
+    -map 0:v -write_tmcd 0 -c copy -tag:v dvhp -movflags +delay_moov -f mov -y" \
+    "ffprobe$(PROGSSUF)$(EXESUF) -v error -bitexact -show_data_hash CRC32 \
+    -show_entries packet=size,data_hash:stream=codec_tag_string -of compact=p=0" mov
+
 FATE_SAMPLES_FFMPEG_FFPROBE += $(FATE_MOV_FFMPEG_FFPROBE_SAMPLES-yes)
 FATE_SAMPLES_FFMPEG += $(FATE_MOV_FFMPEG_SAMPLES-yes)
 
@@ -548,7 +569,7 @@ fate-mov-yuv2-color-range: CMD = run_with_temp \
     "$(call MOV_YUV2_GEN,$(MOV_YUV2_SRC))" "$(MOV_YUV2_PROBE) -color_range tv" mov
 
 # The numeric QuickTime keys keep their type through a remux, a non-number
-# stays a string.
+# stays a string. The float32 3effffff (0.49999997) must not round to 0.5.
 FATE_MOV_FFMPEG_FFPROBE-$(call ALLYES, COLOR_FILTER MPEG4_ENCODER MOV_MUXER \
                                       MOV_DEMUXER FRAMECRC_MUXER         \
                                       FILE_PROTOCOL PIPE_PROTOCOL)       \
@@ -560,7 +581,7 @@ tests/data/mov-mdta-numeric.mov: ffmpeg$(PROGSSUF)$(EXESUF) | tests/data
 	    -flags +bitexact -fflags +bitexact -movflags use_metadata_tags \
 	    -metadata com.apple.quicktime.full-frame-rate-playback-intent=1 \
 	    -metadata com.apple.quicktime.live-photo.auto=1 \
-	    -metadata com.apple.quicktime.live-photo.vitality-score=0.918638 \
+	    -metadata com.apple.quicktime.live-photo.vitality-score=0.49999997 \
 	    -metadata com.apple.quicktime.live-photo.vitality-scoring-version=4294967296 \
 	    -metadata com.apple.quicktime.location.role=north \
 	    -metadata com.apple.quicktime.rating.user=-0 \
